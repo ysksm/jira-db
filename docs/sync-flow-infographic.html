@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>jira-db Sync Flow Infographic</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface2: #334155;
+    --border: #475569;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent2: #818cf8;
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --orange: #fb923c;
+    --pink: #f472b6;
+    --red: #f87171;
+    --cyan: #22d3ee;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 40px 20px;
+  }
+  .container { max-width: 1400px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 60px;
+    position: relative;
+  }
+  .header h1 {
+    font-size: 2.4rem;
+    background: linear-gradient(135deg, var(--accent), var(--accent2), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+    letter-spacing: -0.02em;
+  }
+  .header .subtitle {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+  }
+
+  /* Section */
+  .section {
+    margin-bottom: 48px;
+  }
+  .section-title {
+    font-size: 1.3rem;
+    color: var(--accent);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 24px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+
+  /* Entry Points */
+  .entry-points {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 48px;
+  }
+  .entry-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .entry-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+  .entry-card.web::before { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .entry-card.cli::before { background: linear-gradient(90deg, var(--green), var(--cyan)); }
+  .entry-card h3 {
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+  }
+  .entry-card.web h3 { color: var(--accent); }
+  .entry-card.cli h3 { color: var(--green); }
+  .file-ref {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: var(--bg);
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-block;
+    margin-bottom: 12px;
+    word-break: break-all;
+  }
+  .file-ref .line { color: var(--yellow); }
+
+  /* Flow */
+  .flow-main {
+    position: relative;
+  }
+  .flow-track {
+    position: absolute;
+    left: 28px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: linear-gradient(180deg, var(--accent), var(--accent2), var(--pink), var(--green));
+    opacity: 0.3;
+  }
+
+  .step {
+    position: relative;
+    margin-bottom: 24px;
+    padding-left: 64px;
+  }
+  .step-dot {
+    position: absolute;
+    left: 18px;
+    top: 6px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    z-index: 1;
+  }
+  .step-dot.blue { background: var(--accent); color: var(--bg); }
+  .step-dot.purple { background: var(--accent2); color: var(--bg); }
+  .step-dot.green { background: var(--green); color: var(--bg); }
+  .step-dot.yellow { background: var(--yellow); color: var(--bg); }
+  .step-dot.pink { background: var(--pink); color: var(--bg); }
+  .step-dot.orange { background: var(--orange); color: var(--bg); }
+
+  .step-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    transition: border-color 0.2s;
+  }
+  .step-card:hover {
+    border-color: var(--accent);
+  }
+  .step-card h4 {
+    font-size: 0.95rem;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .step-card p {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  /* Tags */
+  .tag {
+    display: inline-block;
+    font-size: 0.68rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+  .tag.table { background: rgba(56, 189, 248, 0.15); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.3); }
+  .tag.repo { background: rgba(129, 140, 248, 0.15); color: var(--accent2); border: 1px solid rgba(129, 140, 248, 0.3); }
+  .tag.api { background: rgba(251, 191, 36, 0.15); color: var(--yellow); border: 1px solid rgba(251, 191, 36, 0.3); }
+  .tag.view { background: rgba(244, 114, 182, 0.15); color: var(--pink); border: 1px solid rgba(244, 114, 182, 0.3); }
+  .tag.checkpoint { background: rgba(52, 211, 153, 0.15); color: var(--green); border: 1px solid rgba(52, 211, 153, 0.3); }
+
+  /* Sub-steps */
+  .substeps {
+    margin-top: 10px;
+    padding-left: 16px;
+    border-left: 2px solid var(--surface2);
+  }
+  .substep {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    padding: 4px 0;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .substep-num {
+    color: var(--accent);
+    font-weight: 700;
+    min-width: 16px;
+    flex-shrink: 0;
+  }
+  .substep .file-ref {
+    font-size: 0.68rem;
+    margin-bottom: 0;
+    margin-left: 4px;
+  }
+
+  /* Snapshot Algorithm */
+  .algo-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-top: 16px;
+  }
+  .algo-box h4 {
+    color: var(--pink);
+    margin-bottom: 16px;
+    font-size: 1rem;
+  }
+  .algo-visual {
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 12px;
+  }
+  .algo-phase {
+    min-width: 200px;
+    flex: 1;
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 16px;
+    border: 1px solid var(--surface2);
+    position: relative;
+  }
+  .algo-phase h5 {
+    font-size: 0.8rem;
+    margin-bottom: 8px;
+    color: var(--yellow);
+  }
+  .algo-phase p {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+  .algo-phase .code {
+    font-size: 0.72rem;
+    background: var(--surface);
+    padding: 6px 10px;
+    border-radius: 4px;
+    margin-top: 8px;
+    color: var(--green);
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .algo-arrow {
+    display: flex;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    flex-shrink: 0;
+  }
+
+  /* Tables Grid */
+  .tables-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .table-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    position: relative;
+  }
+  .table-card h5 {
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .table-card h5 .icon { font-size: 0.7rem; }
+  .table-card .desc {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .table-card .cols {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+  .table-card .cols span {
+    color: var(--cyan);
+  }
+  .table-card.core h5 { color: var(--accent); }
+  .table-card.meta h5 { color: var(--yellow); }
+  .table-card.derived h5 { color: var(--pink); }
+  .table-card.history h5 { color: var(--green); }
+
+  /* Checkpoint flow */
+  .checkpoint-flow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 16px;
+  }
+  .cp-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .cp-card h4 {
+    font-size: 0.9rem;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .cp-field {
+    font-size: 0.78rem;
+    padding: 4px 0;
+    display: flex;
+    gap: 8px;
+  }
+  .cp-field .name {
+    color: var(--cyan);
+    min-width: 160px;
+    flex-shrink: 0;
+  }
+  .cp-field .type {
+    color: var(--text-muted);
+  }
+
+  /* Loop indicator */
+  .loop-wrap {
+    border: 2px dashed var(--surface2);
+    border-radius: 12px;
+    padding: 20px 20px 12px;
+    margin: 16px 0;
+    position: relative;
+  }
+  .loop-label {
+    position: absolute;
+    top: -10px;
+    left: 20px;
+    background: var(--bg);
+    padding: 0 8px;
+    font-size: 0.72rem;
+    color: var(--orange);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .loop-wrap .step { padding-left: 40px; }
+  .loop-wrap .step-dot { left: 6px; }
+
+  /* Nested loop */
+  .loop-wrap .loop-wrap {
+    border-color: var(--border);
+    margin-left: 8px;
+  }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 32px;
+    padding: 16px;
+    background: var(--surface);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+
+  /* Data flow diagram */
+  .dataflow {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    font-size: 0.78rem;
+    overflow-x: auto;
+  }
+  .dataflow pre {
+    color: var(--text-muted);
+    line-height: 1.8;
+  }
+  .dataflow .hl-table { color: var(--accent); font-weight: 700; }
+  .dataflow .hl-view { color: var(--pink); font-weight: 700; }
+  .dataflow .hl-api { color: var(--yellow); font-weight: 700; }
+  .dataflow .hl-arrow { color: var(--green); }
+  .dataflow .hl-step { color: var(--orange); }
+  .dataflow .hl-file { color: var(--text-muted); font-style: italic; font-size: 0.7rem; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .entry-points, .checkpoint-flow { grid-template-columns: 1fr; }
+    .algo-visual { flex-direction: column; }
+    .algo-arrow { transform: rotate(90deg); justify-content: center; }
+  }
+
+  /* Diff badge */
+  .diff-badge {
+    font-size: 0.65rem;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 700;
+    margin-left: 6px;
+  }
+  .diff-badge.web-only {
+    background: rgba(56, 189, 248, 0.2);
+    color: var(--accent);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+  }
+  .diff-badge.cli-only {
+    background: rgba(52, 211, 153, 0.2);
+    color: var(--green);
+    border: 1px solid rgba(52, 211, 153, 0.3);
+  }
+  .diff-badge.both {
+    background: rgba(129, 140, 248, 0.2);
+    color: var(--accent2);
+    border: 1px solid rgba(129, 140, 248, 0.3);
+  }
+
+  /* File tree */
+  .file-tree {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    font-size: 0.78rem;
+    line-height: 1.9;
+  }
+  .file-tree .dir { color: var(--accent); }
+  .file-tree .file { color: var(--text-muted); }
+  .file-tree .desc { color: var(--yellow); font-size: 0.72rem; }
+  .file-tree .indent { display: inline-block; }
+
+  .note-box {
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-size: 0.8rem;
+    color: var(--yellow);
+    margin-top: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Header -->
+<div class="header">
+  <h1>jira-db Sync Flow</h1>
+  <div class="subtitle">JIRA Data Synchronization Architecture &amp; Implementation Map</div>
+</div>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-item"><span class="tag table">TABLE</span> DuckDB Table</div>
+  <div class="legend-item"><span class="tag view">VIEW</span> DuckDB View</div>
+  <div class="legend-item"><span class="tag repo">REPO</span> Repository</div>
+  <div class="legend-item"><span class="tag api">API</span> JIRA REST API</div>
+  <div class="legend-item"><span class="tag checkpoint">CP</span> Checkpoint</div>
+  <div class="legend-item"><span class="diff-badge web-only">WEB</span> Web Service only</div>
+  <div class="legend-item"><span class="diff-badge cli-only">CLI</span> CLI only</div>
+  <div class="legend-item"><span class="diff-badge both">BOTH</span> Both paths</div>
+</div>
+
+<!-- ===== Section: Entry Points ===== -->
+<div class="section">
+  <div class="section-title">Entry Points</div>
+  <div class="entry-points">
+
+    <div class="entry-card web">
+      <h3>Web Service</h3>
+      <div class="file-ref">jira-db-service/src/services/sync.rs &rarr; <span class="line">execute()</span> L26-319</div>
+      <p style="font-size:0.82rem; color:var(--text-muted);">
+        Actix-web ハンドラから呼び出し。単一DB (jira.duckdb) に全プロジェクトを保存。
+        エンドポイントごとにプロジェクトをグループ化して処理。
+      </p>
+      <div style="margin-top:8px;">
+        <span class="tag repo">AppState</span>
+        <span class="tag repo">SyncProjectUseCase</span>
+        <span class="tag repo">SyncFieldsUseCase</span>
+      </div>
+    </div>
+
+    <div class="entry-card cli">
+      <h3>CLI</h3>
+      <div class="file-ref">jira-db-cli/src/main.rs &rarr; <span class="line">handle_sync()</span> L421-806</div>
+      <p style="font-size:0.82rem; color:var(--text-muted);">
+        コマンドラインから実行。プロジェクトごとに個別DB ({KEY}.duckdb) を使用。
+        DatabaseFactory でプロジェクトごとにDB接続を管理。
+      </p>
+      <div style="margin-top:8px;">
+        <span class="tag repo">DatabaseFactory</span>
+        <span class="tag repo">SyncProjectUseCase</span>
+        <span class="tag repo">SyncFieldsUseCase</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== Section: Main Sync Flow ===== -->
+<div class="section">
+  <div class="section-title">Sync Processing Flow</div>
+  <div class="flow-main">
+    <div class="flow-track"></div>
+
+    <!-- Step 0: Init -->
+    <div class="step">
+      <div class="step-dot blue">0</div>
+      <div class="step-card">
+        <h4>Initialize <span class="diff-badge both">BOTH</span></h4>
+        <p>Settings読み込み、DB接続確立、Repository群の生成</p>
+        <div class="file-ref">
+          Web: sync.rs <span class="line">L30-45</span>&emsp;
+          CLI: main.rs <span class="line">L427-505</span>
+        </div>
+        <div>
+          <span class="tag repo">IssueRepository</span>
+          <span class="tag repo">ChangeHistoryRepository</span>
+          <span class="tag repo">MetadataRepository</span>
+          <span class="tag repo">SyncHistoryRepository</span>
+          <span class="tag repo">IssueSnapshotRepository</span>
+          <span class="tag repo">FieldRepository</span>
+          <span class="tag repo">IssuesExpandedRepository</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Endpoint Loop -->
+    <div class="loop-wrap" style="margin-left:48px;">
+      <div class="loop-label">FOR EACH ENDPOINT</div>
+
+      <!-- Step 1: Fields -->
+      <div class="step">
+        <div class="step-dot purple">1</div>
+        <div class="step-card">
+          <h4>Sync Fields <span class="diff-badge both">BOTH</span></h4>
+          <p>JIRA API からフィールド定義を取得し、jira_fields テーブルに保存</p>
+          <div class="file-ref">
+            SyncFieldsUseCase: sync_fields.rs <span class="line">L39-42</span><br>
+            Web: sync.rs <span class="line">L192</span>&emsp;
+            CLI: main.rs <span class="line">expand_and_create_views() L809-857</span>
+          </div>
+          <div>
+            <span class="tag api">GET /rest/api/3/field</span>
+            <span class="tag table">jira_fields</span>
+            <span class="tag repo">FieldRepository</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Add Columns -->
+      <div class="step">
+        <div class="step-dot purple">2</div>
+        <div class="step-card">
+          <h4>Add Dynamic Columns <span class="diff-badge both">BOTH</span></h4>
+          <p>jira_fields の定義に基づき、issues_expanded テーブルに動的カラムを追加</p>
+          <div class="file-ref">
+            SyncFieldsUseCase: sync_fields.rs <span class="line">L45-48</span><br>
+            Web: sync.rs <span class="line">L203</span>&emsp;
+            CLI: main.rs <span class="line">expand_and_create_views()</span>
+          </div>
+          <div>
+            <span class="tag table">issues_expanded</span>
+            <span class="tag repo">IssuesExpandedRepository</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Project Loop -->
+      <div class="loop-wrap">
+        <div class="loop-label">FOR EACH PROJECT</div>
+
+        <!-- Step 3: Fetch Issues -->
+        <div class="step">
+          <div class="step-dot green">3</div>
+          <div class="step-card">
+            <h4>Fetch &amp; Store Issues <span class="diff-badge both">BOTH</span></h4>
+            <p>JIRA API から100件ずつバッチ取得。Resumable: チェックポイントから再開可能。</p>
+            <div class="file-ref">
+              SyncProjectUseCase: sync_project.rs &rarr; <span class="line">sync_internal_resumable() L361-540</span>
+            </div>
+
+            <div class="substeps">
+              <div class="substep">
+                <span class="substep-num">3a</span>
+                <span>JIRA API バッチ取得 (100件/回, updated ASC順)
+                  <span class="file-ref">sync_project.rs <span class="line">L403-410</span></span>
+                </span>
+              </div>
+              <div class="substep">
+                <span class="substep-num">3b</span>
+                <span>issues テーブルに batch_insert (UPSERT)
+                  <span class="file-ref">sync_project.rs <span class="line">L454-457</span></span>
+                </span>
+              </div>
+              <div class="substep">
+                <span class="substep-num">3c</span>
+                <span>raw_data を別DB に保存 (オプション)
+                  <span class="file-ref">sync_project.rs <span class="line">L460-480</span></span>
+                </span>
+              </div>
+              <div class="substep">
+                <span class="substep-num">3d</span>
+                <span>変更履歴を抽出 &amp; issue_change_history に保存
+                  <span class="file-ref">sync_project.rs <span class="line">L482-499</span></span>
+                </span>
+              </div>
+              <div class="substep">
+                <span class="substep-num">3e</span>
+                <span>チェックポイント保存 (settings.json)
+                  <span class="file-ref">sync_project.rs <span class="line">L501-533</span></span>
+                </span>
+              </div>
+            </div>
+
+            <div style="margin-top:10px;">
+              <span class="tag api">POST /rest/api/3/search/jql</span>
+              <span class="tag table">issues</span>
+              <span class="tag table">issue_change_history</span>
+              <span class="tag repo">IssueRepository</span>
+              <span class="tag repo">ChangeHistoryRepository</span>
+              <span class="tag checkpoint">SyncCheckpoint</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4: Metadata -->
+        <div class="step">
+          <div class="step-dot yellow">4</div>
+          <div class="step-card">
+            <h4>Sync Metadata <span class="diff-badge both">BOTH</span></h4>
+            <p>ステータス、優先度、イシュータイプ等のメタデータを個別APIから取得</p>
+            <div class="file-ref">
+              SyncProjectUseCase: sync_project.rs &rarr; <span class="line">sync_metadata() L693-798</span>
+            </div>
+
+            <div class="substeps">
+              <div class="substep"><span class="substep-num">&bull;</span><span>Statuses <span class="tag api" style="font-size:0.62rem">GET /rest/api/3/project/{key}/statuses</span></span></div>
+              <div class="substep"><span class="substep-num">&bull;</span><span>Priorities <span class="tag api" style="font-size:0.62rem">GET /rest/api/3/priority</span></span></div>
+              <div class="substep"><span class="substep-num">&bull;</span><span>Issue Types <span class="tag api" style="font-size:0.62rem">GET /rest/api/3/issuetype/project</span></span></div>
+              <div class="substep"><span class="substep-num">&bull;</span><span>Labels <span class="tag api" style="font-size:0.62rem">JQL: labels is not EMPTY</span></span></div>
+              <div class="substep"><span class="substep-num">&bull;</span><span>Components <span class="tag api" style="font-size:0.62rem">GET /rest/api/3/project/{key}/components</span></span></div>
+              <div class="substep"><span class="substep-num">&bull;</span><span>Fix Versions <span class="tag api" style="font-size:0.62rem">GET /rest/api/3/project/{key}/versions</span></span></div>
+            </div>
+
+            <div style="margin-top:10px;">
+              <span class="tag table">statuses</span>
+              <span class="tag table">priorities</span>
+              <span class="tag table">issue_types</span>
+              <span class="tag table">labels</span>
+              <span class="tag table">components</span>
+              <span class="tag table">fix_versions</span>
+              <span class="tag repo">MetadataRepository</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 5: Snapshots -->
+        <div class="step">
+          <div class="step-dot pink">5</div>
+          <div class="step-card">
+            <h4>Generate Snapshots <span class="diff-badge both">BOTH</span></h4>
+            <p>変更履歴からポイントインタイムスナップショットを再構築。Resumable: バッチ処理。</p>
+            <div class="file-ref">
+              GenerateSnapshotsUseCase: generate_snapshots.rs<br>
+              &rarr; <span class="line">execute_with_progress() L370-455</span><br>
+              &rarr; <span class="line">process_batches() L458-559</span><br>
+              &rarr; <span class="line">generate_snapshots_for_issue() L562-780</span><br>
+              呼出元: sync_project.rs <span class="line">L595-617</span>
+            </div>
+
+            <div class="substeps">
+              <div class="substep">
+                <span class="substep-num">5a</span>
+                <span>イシュー件数取得 &amp; チェックポイントから再開位置決定
+                  <span class="file-ref">generate_snapshots.rs <span class="line">L382-404</span></span>
+                </span>
+              </div>
+              <div class="substep">
+                <span class="substep-num">5b</span>
+                <span>トランザクション開始 (防御的rollback付き)
+                  <span class="file-ref">generate_snapshots.rs <span class="line">L409-412</span></span>
+                </span>
+              </div>
+              <div class="substep">
+                <span class="substep-num">5c</span>
+                <span>バッチ処理 (100件/回): イシューごとにスナップショット生成
+                  <span class="file-ref">generate_snapshots.rs <span class="line">L458-559</span></span>
+                </span>
+              </div>
+              <div class="substep">
+                <span class="substep-num">5d</span>
+                <span>トランザクションCOMMIT
+                  <span class="file-ref">generate_snapshots.rs <span class="line">L425-445</span></span>
+                </span>
+              </div>
+            </div>
+
+            <div style="margin-top:10px;">
+              <span class="tag table">issue_snapshots</span>
+              <span class="tag repo">IssueSnapshotRepository</span>
+              <span class="tag repo">IssueRepository</span>
+              <span class="tag repo">ChangeHistoryRepository</span>
+              <span class="tag checkpoint">SnapshotCheckpoint</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 6: Expand -->
+        <div class="step">
+          <div class="step-dot orange">6</div>
+          <div class="step-card">
+            <h4>Expand Issues <span class="diff-badge both">BOTH</span></h4>
+            <p>issues.raw_data (JSON) からカスタムフィールドを抽出し issues_expanded テーブルを更新</p>
+            <div class="file-ref">
+              SyncFieldsUseCase: sync_fields.rs <span class="line">L51-53</span><br>
+              Web: sync.rs <span class="line">L243</span>&emsp;
+              CLI: main.rs <span class="line">expand_and_create_views()</span>
+            </div>
+            <div>
+              <span class="tag table">issues_expanded</span>
+              <span class="tag repo">IssuesExpandedRepository</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /Project Loop -->
+
+      <!-- Step 7: Views -->
+      <div class="step">
+        <div class="step-dot pink">7</div>
+        <div class="step-card">
+          <h4>Create Readable Views <span class="diff-badge both">BOTH</span></h4>
+          <p>フィールドIDを人間が読めるカラム名に変換したVIEWを作成</p>
+          <div class="file-ref">
+            SyncFieldsUseCase: sync_fields.rs <span class="line">L56-65</span><br>
+            IssuesExpandedRepository: issues_expanded_repository.rs<br>
+            Web: sync.rs <span class="line">L297-302</span>&emsp;
+            CLI: main.rs <span class="line">expand_and_create_views()</span>
+          </div>
+
+          <div class="substeps">
+            <div class="substep"><span class="substep-num">7a</span><span><span class="tag view" style="font-size:0.62rem">issues_readable</span> issues_expanded をベースに作成</span></div>
+            <div class="substep"><span class="substep-num">7b</span><span><span class="tag view" style="font-size:0.62rem">issue_snapshots_readable</span> issue_snapshots の基本フィールドビュー</span></div>
+            <div class="substep"><span class="substep-num">7c</span><span><span class="tag view" style="font-size:0.62rem">issue_snapshots_expanded</span> issue_snapshots.raw_data からカスタムフィールド抽出</span></div>
+            <div class="substep"><span class="substep-num">7d</span><span><span class="tag view" style="font-size:0.62rem">issue_snapshots_expanded_readable</span> 上記を人間可読カラム名に変換</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /Endpoint Loop -->
+
+    <!-- Step 8: Finalize -->
+    <div class="step">
+      <div class="step-dot blue">8</div>
+      <div class="step-card">
+        <h4>Finalize <span class="diff-badge both">BOTH</span></h4>
+        <p>成功したプロジェクトの last_synced を更新。チェックポイントをクリアまたは保存。</p>
+        <div class="file-ref">
+          Web: sync.rs <span class="line">L305-316</span>&emsp;
+          CLI: main.rs <span class="line">L574-624</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== Section: Snapshot Algorithm ===== -->
+<div class="section">
+  <div class="section-title">Snapshot Generation Algorithm</div>
+  <div class="file-ref">generate_snapshots.rs &rarr; <span class="line">generate_snapshots_for_issue() L562-780</span></div>
+
+  <div class="algo-box">
+    <h4>変更履歴からのポイントインタイム復元</h4>
+
+    <div class="algo-visual">
+
+      <div class="algo-phase">
+        <h5>Phase 1: 逆方向適用</h5>
+        <p>現在のデータに全変更を逆順に適用して初期状態を復元</p>
+        <div class="code">current_state = issue.raw_json
+for change in history.reverse():
+  field[change.field] = change.from</div>
+        <div class="file-ref" style="margin-top:8px">L589-601</div>
+      </div>
+
+      <div class="algo-arrow">&rarr;</div>
+
+      <div class="algo-phase">
+        <h5>Phase 2: Version 1 作成</h5>
+        <p>復元した初期状態からVersion 1スナップショットを生成</p>
+        <div class="code">snapshot_v1 = {
+  valid_from: created_date,
+  valid_to:   first_change_time,
+  updated_date: created_date,
+  raw_data:   None  // 最新のみ保持
+}</div>
+        <div class="file-ref" style="margin-top:8px">L604-667</div>
+      </div>
+
+      <div class="algo-arrow">&rarr;</div>
+
+      <div class="algo-phase">
+        <h5>Phase 3: 順方向適用</h5>
+        <p>各変更を順に適用してVersion 2〜Nを生成</p>
+        <div class="code">for i, change in history:
+  apply_change(state, change)
+  snapshot_vN = {
+    valid_from: change.time,
+    valid_to:   next_change.time,
+    updated_date: change.time,
+    raw_data: if last { json } else { None }
+  }</div>
+        <div class="file-ref" style="margin-top:8px">L670-777</div>
+      </div>
+
+    </div>
+
+    <div class="note-box">
+      <strong>raw_data</strong> は最新バージョン (valid_to=NULL) のみ保持。中間バージョンでは labels, components, fix_versions のみ raw_data から抽出後に破棄 (メモリ最適化)。
+    </div>
+  </div>
+</div>
+
+<!-- ===== Section: Data Flow ===== -->
+<div class="section">
+  <div class="section-title">Data Flow Diagram</div>
+  <div class="dataflow">
+<pre>
+<span class="hl-api">JIRA REST API</span>
+  │
+  │  <span class="hl-step">Step 3: fetch_project_issues_batch()</span>
+  ▼
+<span class="hl-table">issues</span> テーブル <span class="hl-file">(raw_data = 全フィールド + changelog JSON)</span>
+  │
+  ├──<span class="hl-arrow">───</span> <span class="hl-step">Step 3d</span> <span class="hl-arrow">──→</span> <span class="hl-table">issue_change_history</span> テーブル
+  │                         <span class="hl-file">(raw_json.changelog から正規化して抽出)</span>
+  │
+  ├──<span class="hl-arrow">───</span> <span class="hl-step">Step 5</span>  <span class="hl-arrow">──→</span> <span class="hl-table">issue_snapshots</span> テーブル <span class="hl-file">(変更履歴から再構築)</span>
+  │                         │
+  │                         ├──<span class="hl-arrow">─→</span> <span class="hl-view">issue_snapshots_readable</span> VIEW
+  │                         ├──<span class="hl-arrow">─→</span> <span class="hl-view">issue_snapshots_expanded</span> VIEW <span class="hl-file">(raw_data JSON抽出)</span>
+  │                         └──<span class="hl-arrow">─→</span> <span class="hl-view">issue_snapshots_expanded_readable</span> VIEW
+  │
+  └──<span class="hl-arrow">───</span> <span class="hl-step">Step 6</span>  <span class="hl-arrow">──→</span> <span class="hl-table">issues_expanded</span> テーブル <span class="hl-file">(raw_data からカスタムフィールド展開)</span>
+                              │
+                              └──<span class="hl-arrow">─→</span> <span class="hl-view">issues_readable</span> VIEW <span class="hl-file">(人間可読カラム名)</span>
+
+<span class="hl-api">JIRA REST API</span> (各メタデータ専用エンドポイント)
+  │
+  │  <span class="hl-step">Step 4: sync_metadata()</span>
+  ▼
+<span class="hl-table">statuses</span> / <span class="hl-table">priorities</span> / <span class="hl-table">issue_types</span> / <span class="hl-table">labels</span> / <span class="hl-table">components</span> / <span class="hl-table">fix_versions</span>
+
+<span class="hl-api">JIRA REST API</span> (フィールド定義)
+  │
+  │  <span class="hl-step">Step 1: sync_fields()</span>
+  ▼
+<span class="hl-table">jira_fields</span> テーブル <span class="hl-arrow">──→</span> Step 2, 6, 7 でカラム名マッピングに使用
+</pre>
+  </div>
+</div>
+
+<!-- ===== Section: Tables ===== -->
+<div class="section">
+  <div class="section-title">Database Tables &amp; Views</div>
+  <div class="file-ref" style="margin-bottom:16px">schema.rs &rarr; <span class="line">Schema::init()</span></div>
+
+  <div class="tables-grid">
+
+    <div class="table-card core">
+      <h5><span class="icon">&#9632;</span> issues</h5>
+      <div class="desc">JIRA イシュー現在値 + raw_data (JSON)</div>
+      <div class="file-ref">schema.rs <span class="line">L167-197</span></div>
+      <div class="cols">PK: <span>id</span> | IDX: project_id, key, status</div>
+    </div>
+
+    <div class="table-card history">
+      <h5><span class="icon">&#9632;</span> issue_change_history</h5>
+      <div class="desc">正規化された変更履歴</div>
+      <div class="file-ref">schema.rs <span class="line">L337-393</span></div>
+      <div class="cols">PK: <span>id (SEQ)</span> | IDX: issue_id, issue_key, field, changed_at</div>
+    </div>
+
+    <div class="table-card derived">
+      <h5><span class="icon">&#9632;</span> issue_snapshots</h5>
+      <div class="desc">ポイントインタイムスナップショット</div>
+      <div class="file-ref">schema.rs <span class="line">L395-451</span></div>
+      <div class="cols">PK: <span>(issue_id, version)</span> | IDX: project_id, valid_from/to</div>
+    </div>
+
+    <div class="table-card core">
+      <h5><span class="icon">&#9632;</span> issues_expanded</h5>
+      <div class="desc">カスタムフィールド展開済み</div>
+      <div class="file-ref">schema.rs <span class="line">L482-533</span></div>
+      <div class="cols">PK: <span>id</span> | 動的カラム (jira_fields ベース)</div>
+    </div>
+
+    <div class="table-card core">
+      <h5><span class="icon">&#9632;</span> jira_fields</h5>
+      <div class="desc">JIRAフィールド定義</div>
+      <div class="file-ref">schema.rs <span class="line">L453-480</span></div>
+      <div class="cols">PK: <span>id</span></div>
+    </div>
+
+    <div class="table-card meta">
+      <h5><span class="icon">&#9632;</span> statuses / priorities / issue_types</h5>
+      <div class="desc">メタデータ定義テーブル群</div>
+      <div class="file-ref">schema.rs <span class="line">L229-335</span></div>
+      <div class="cols">PK: <span>(project_id, name)</span></div>
+    </div>
+
+    <div class="table-card meta">
+      <h5><span class="icon">&#9632;</span> labels / components / fix_versions</h5>
+      <div class="desc">メタデータ定義テーブル群</div>
+      <div class="file-ref">schema.rs <span class="line">L287-335</span></div>
+      <div class="cols">PK: <span>(project_id, name)</span></div>
+    </div>
+
+    <div class="table-card history">
+      <h5><span class="icon">&#9632;</span> sync_history</h5>
+      <div class="desc">同期実行履歴</div>
+      <div class="file-ref">schema.rs <span class="line">L199-227</span></div>
+      <div class="cols">PK: <span>id (SEQ)</span></div>
+    </div>
+
+  </div>
+
+  <h4 style="margin-top:24px; color:var(--pink); font-size:0.95rem; margin-bottom:12px;">Views (Step 7 で作成)</h4>
+  <div class="tables-grid">
+
+    <div class="table-card derived" style="border-left: 3px solid var(--pink);">
+      <h5><span class="icon">&#8702;</span> issues_readable</h5>
+      <div class="desc">issues_expanded を人間可読カラム名で表示</div>
+      <div class="cols">Source: <span>issues_expanded</span></div>
+    </div>
+
+    <div class="table-card derived" style="border-left: 3px solid var(--pink);">
+      <h5><span class="icon">&#8702;</span> issue_snapshots_readable</h5>
+      <div class="desc">スナップショット基本フィールドビュー</div>
+      <div class="cols">Source: <span>issue_snapshots</span></div>
+    </div>
+
+    <div class="table-card derived" style="border-left: 3px solid var(--pink);">
+      <h5><span class="icon">&#8702;</span> issue_snapshots_expanded</h5>
+      <div class="desc">raw_data からカスタムフィールドを抽出</div>
+      <div class="cols">Source: <span>issue_snapshots.raw_data</span></div>
+    </div>
+
+    <div class="table-card derived" style="border-left: 3px solid var(--pink);">
+      <h5><span class="icon">&#8702;</span> issue_snapshots_expanded_readable</h5>
+      <div class="desc">上記を人間可読カラム名に変換</div>
+      <div class="cols">Source: <span>issue_snapshots_expanded</span></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== Section: Checkpoint ===== -->
+<div class="section">
+  <div class="section-title">Checkpoint &amp; Resume Strategy</div>
+  <div class="checkpoint-flow">
+
+    <div class="cp-card">
+      <h4><span class="tag checkpoint">CP</span> SyncCheckpoint (Issue Sync)</h4>
+      <div class="file-ref" style="margin-bottom:8px">settings.json &rarr; projects[].sync_checkpoint</div>
+      <div class="cp-field"><span class="name">last_issue_updated_at</span><span class="type">DateTime&lt;Utc&gt; &mdash; 再開位置 (JQL updated &gt;=)</span></div>
+      <div class="cp-field"><span class="name">last_issue_key</span><span class="type">String &mdash; スキップ判定用</span></div>
+      <div class="cp-field"><span class="name">items_processed</span><span class="type">usize &mdash; 処理済みイシュー数</span></div>
+      <div class="cp-field"><span class="name">total_items</span><span class="type">usize &mdash; 全イシュー数</span></div>
+      <div style="margin-top:12px; font-size:0.75rem; color:var(--text-muted);">
+        保存タイミング: 各バッチ (100件) 処理後<br>
+        クリアタイミング: sync 成功時
+      </div>
+    </div>
+
+    <div class="cp-card">
+      <h4><span class="tag checkpoint">CP</span> SnapshotCheckpoint</h4>
+      <div class="file-ref" style="margin-bottom:8px">settings.json &rarr; projects[].snapshot_checkpoint</div>
+      <div class="cp-field"><span class="name">last_issue_id</span><span class="type">String &mdash; 再開位置 (id &gt; ...)</span></div>
+      <div class="cp-field"><span class="name">last_issue_key</span><span class="type">String &mdash; 表示用</span></div>
+      <div class="cp-field"><span class="name">issues_processed</span><span class="type">usize &mdash; 処理済みイシュー数</span></div>
+      <div class="cp-field"><span class="name">total_issues</span><span class="type">usize &mdash; 全イシュー数</span></div>
+      <div class="cp-field"><span class="name">snapshots_generated</span><span class="type">usize &mdash; 生成済みスナップショット数</span></div>
+      <div style="margin-top:12px; font-size:0.75rem; color:var(--text-muted);">
+        保存タイミング: 各バッチ (100件) 処理後<br>
+        クリアタイミング: snapshot 生成成功時
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== Section: Repository Map ===== -->
+<div class="section">
+  <div class="section-title">Repository Implementation Map</div>
+  <div class="file-ref" style="margin-bottom:16px">jira-db-core/src/infrastructure/database/repositories/</div>
+
+  <div class="tables-grid">
+    <div class="table-card core">
+      <h5>issue_repository.rs</h5>
+      <div class="desc">issues テーブルの CRUD。batch_insert, search, count, mark_deleted</div>
+      <div class="cols">TIMESTAMPTZ &rarr; <span>strftime() で VARCHAR に変換して取得</span></div>
+    </div>
+    <div class="table-card history">
+      <h5>change_history_repository.rs</h5>
+      <div class="desc">issue_change_history の CRUD。batch_insert, find_by_issue, delete</div>
+      <div class="cols">TIMESTAMPTZ &rarr; <span>CAST(changed_at AS VARCHAR)</span></div>
+    </div>
+    <div class="table-card derived">
+      <h5>issue_snapshot_repository.rs</h5>
+      <div class="desc">issue_snapshots の CRUD。bulk_insert, transaction 管理, find_by_version</div>
+      <div class="cols">TIMESTAMPTZ &rarr; <span>CAST(valid_from/to AS VARCHAR)</span></div>
+    </div>
+    <div class="table-card core">
+      <h5>issues_expanded_repository.rs</h5>
+      <div class="desc">issues_expanded テーブル管理。add_columns, expand_issues, create views</div>
+      <div class="cols">issues.raw_data <span>JSON からカスタムフィールド抽出</span></div>
+    </div>
+    <div class="table-card meta">
+      <h5>metadata_repository.rs</h5>
+      <div class="desc">メタデータ6テーブルの upsert &amp; find</div>
+      <div class="cols">TIMESTAMPTZ &rarr; <span>CAST(release_date AS VARCHAR)</span></div>
+    </div>
+    <div class="table-card meta">
+      <h5>field_repository.rs</h5>
+      <div class="desc">jira_fields テーブルの upsert, find_all, find_navigable</div>
+    </div>
+    <div class="table-card history">
+      <h5>sync_history_repository.rs</h5>
+      <div class="desc">sync_history の insert, update_status, find_last</div>
+      <div class="cols">TIMESTAMPTZ &rarr; <span>CAST(completed_at AS VARCHAR)</span></div>
+    </div>
+    <div class="table-card core">
+      <h5>project_repository.rs</h5>
+      <div class="desc">projects テーブルの CRUD</div>
+    </div>
+    <div class="table-card history">
+      <h5>raw_data_repository.rs</h5>
+      <div class="desc">別DBの issue_raw_data テーブル (大容量JSON保存)</div>
+    </div>
+    <div class="table-card core">
+      <h5>embeddings_repository.rs</h5>
+      <div class="desc">ベクトル検索用 embeddings テーブル。DuckDB VSS</div>
+    </div>
+  </div>
+
+  <div class="note-box" style="margin-top:16px;">
+    <strong>DuckDB v1.4.3 TIMESTAMPTZ 制約:</strong>
+    Rust bindings で TIMESTAMPTZ カラムを <code>row.get::&lt;_, String&gt;()</code> で直接読み取ると
+    <code>Invalid column type Timestamp</code> エラーが発生する。
+    全 SELECT クエリで <code>CAST(col AS VARCHAR)</code> または <code>strftime()</code> による明示的変換が必要。
+  </div>
+</div>
+
+<!-- Footer -->
+<div style="text-align:center; margin-top:60px; padding:20px; color:var(--text-muted); font-size:0.75rem;">
+  Generated for jira-db project &mdash; Sync flow as of 2026-02-01
+</div>
+
+</div>
+</body>
+</html>
