@@ -94,7 +94,7 @@ impl SyncHistoryRepository for DuckDbSyncHistoryRepository {
         let mut stmt = conn
             .prepare(
                 r#"
-            SELECT completed_at, status
+            SELECT CAST(completed_at AS VARCHAR) as completed_at, status
             FROM sync_history
             WHERE project_id = ? AND status = 'completed'
             ORDER BY completed_at DESC

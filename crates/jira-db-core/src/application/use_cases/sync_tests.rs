@@ -1214,4 +1214,179 @@ mod tests {
             "JIRA service should not be called when resuming from snapshot checkpoint"
         );
     }
+
+    /// Integration test: Snapshot generation with REAL DuckDB repositories
+    /// This exercises the exact code path used in production
+    #[test]
+    fn test_snapshot_generation_with_real_duckdb() {
+        use crate::infrastructure::database::{
+            Database, DuckDbChangeHistoryRepository, DuckDbIssueRepository,
+            DuckDbIssueSnapshotRepository,
+        };
+
+        // Create temp DuckDB database (Schema::init is called inside Database::new)
+        let tmp_dir = std::env::temp_dir().join("jira_db_test_snapshots");
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let db_path = tmp_dir.join("test_snapshot.duckdb");
+        let _ = std::fs::remove_file(&db_path); // Clean up from previous runs
+        let db = Database::new(&db_path).expect("Failed to create database");
+        let conn = db.connection();
+
+        // Create real DuckDB repositories
+        let issue_repo = Arc::new(DuckDbIssueRepository::new(conn.clone()));
+        let change_history_repo = Arc::new(DuckDbChangeHistoryRepository::new(conn.clone()));
+        let snapshot_repo = Arc::new(DuckDbIssueSnapshotRepository::new(conn.clone()));
+
+        // Insert a test issue directly via DuckDB
+        let now = Utc::now();
+        let issue = Issue::new(
+            "10001".to_string(),
+            "100".to_string(),
+            "TEST-1".to_string(),
+            "Test Issue Summary".to_string(),
+            Some("Test description".to_string()),
+            Some("Open".to_string()),
+            Some("High".to_string()),
+            Some("assignee1".to_string()),
+            Some("reporter1".to_string()),
+            Some("Bug".to_string()),
+            None, // resolution
+            Some(vec!["label1".to_string()]),
+            None, // components
+            None, // fix_versions
+            None, // sprint
+            None, // team
+            None, // parent_key
+            None, // due_date
+            Some(now - Duration::days(5)),
+            Some(now),
+            Some(r#"{"fields":{"summary":"Test Issue Summary","status":{"name":"Open"},"priority":{"name":"High"}}}"#.to_string()),
+        );
+        issue_repo
+            .batch_insert(&[issue])
+            .expect("Failed to insert test issue");
+
+        // Insert change history
+        let history = vec![ChangeHistoryItem {
+            issue_id: "10001".to_string(),
+            issue_key: "TEST-1".to_string(),
+            history_id: "h1".to_string(),
+            author_account_id: Some("user1".to_string()),
+            author_display_name: Some("User One".to_string()),
+            field: "status".to_string(),
+            field_type: Some("jira".to_string()),
+            from_value: None,
+            from_string: Some("Open".to_string()),
+            to_value: None,
+            to_string: Some("In Progress".to_string()),
+            changed_at: now - Duration::days(2),
+        }];
+        change_history_repo
+            .batch_insert(&history)
+            .expect("Failed to insert change history");
+
+        // Verify data was inserted
+        let count = issue_repo
+            .count_by_project("100")
+            .expect("Failed to count issues");
+        assert_eq!(count, 1, "Expected 1 issue, got {}", count);
+
+        // Run snapshot generation with REAL DuckDB
+        let use_case = GenerateSnapshotsUseCase::new(
+            issue_repo.clone(),
+            change_history_repo.clone(),
+            snapshot_repo.clone(),
+        );
+
+        let result = use_case.execute("TEST", "100");
+        match &result {
+            Ok(r) => {
+                eprintln!(
+                    "Snapshot generation OK: {} issues processed, {} snapshots generated",
+                    r.issues_processed, r.snapshots_generated
+                );
+            }
+            Err(e) => {
+                eprintln!("Snapshot generation FAILED: {}", e);
+            }
+        }
+        let result = result.expect("Snapshot generation should succeed");
+        assert!(result.completed, "Snapshot generation should complete");
+        assert_eq!(result.issues_processed, 1);
+        assert!(
+            result.snapshots_generated >= 2,
+            "Expected at least 2 snapshots (initial + 1 change), got {}",
+            result.snapshots_generated
+        );
+
+        // Verify snapshots exist in DuckDB
+        let snapshot_count = snapshot_repo
+            .count_by_project_id("100")
+            .expect("Failed to count snapshots");
+        assert!(
+            snapshot_count >= 2,
+            "Expected at least 2 snapshots in DB, got {}",
+            snapshot_count
+        );
+    }
+
+    /// Integration test: Verify DuckDB TIMESTAMPTZ read as String works correctly
+    #[test]
+    fn test_duckdb_timestamptz_requires_cast() {
+        use duckdb::Connection;
+
+        let conn = Connection::open_in_memory().expect("Failed to open DuckDB");
+
+        // Create a simple table with TIMESTAMPTZ
+        conn.execute(
+            "CREATE TABLE test_ts (id VARCHAR, ts TIMESTAMPTZ)",
+            [],
+        )
+        .expect("Failed to create table");
+
+        // Insert a timestamp as RFC3339 string
+        let now = Utc::now();
+        let rfc3339 = now.to_rfc3339();
+        conn.execute(
+            "INSERT INTO test_ts VALUES ('1', ?)",
+            duckdb::params![&rfc3339],
+        )
+        .expect("Failed to insert");
+
+        // DuckDB v1.4.3 Rust bindings CANNOT read TIMESTAMPTZ as String directly
+        let direct_result: Result<String, _> = conn.query_row(
+            "SELECT ts FROM test_ts WHERE id = '1'",
+            [],
+            |row| row.get::<_, String>(0),
+        );
+        assert!(
+            direct_result.is_err(),
+            "DuckDB v1.4.3 cannot read TIMESTAMPTZ as String directly"
+        );
+
+        // Workaround: CAST to VARCHAR in the SQL query
+        let cast_result: Result<String, _> = conn.query_row(
+            "SELECT CAST(ts AS VARCHAR) FROM test_ts WHERE id = '1'",
+            [],
+            |row| row.get::<_, String>(0),
+        );
+        assert!(
+            cast_result.is_ok(),
+            "CAST(ts AS VARCHAR) should work as workaround"
+        );
+
+        // Also test strftime workaround (used in issue_repository)
+        let strftime_result: Result<String, _> = conn.query_row(
+            "SELECT strftime(ts::TIMESTAMP, '%Y-%m-%dT%H:%M:%S') || '+00:00' FROM test_ts WHERE id = '1'",
+            [],
+            |row| row.get::<_, String>(0),
+        );
+        assert!(
+            strftime_result.is_ok(),
+            "strftime workaround should work"
+        );
+        let ts_str = strftime_result.unwrap();
+        let parsed = DateTime::parse_from_rfc3339(&ts_str);
+        assert!(parsed.is_ok(), "strftime output should be parseable as RFC3339");
+    }
 }

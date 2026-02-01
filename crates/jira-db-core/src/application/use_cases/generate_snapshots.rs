@@ -252,7 +252,7 @@ fn apply_changes_reverse_to_raw_data(raw_data: &mut JsonValue, changes: &[&Chang
 }
 
 /// Default batch size for processing issues
-const DEFAULT_BATCH_SIZE: usize = 500;
+const DEFAULT_BATCH_SIZE: usize = 100;
 
 /// Result of snapshot generation
 #[derive(Debug, Clone)]
@@ -403,6 +403,11 @@ where
                 (None, 0, 0)
             };
 
+        // Defensive: rollback any dangling transaction from a previous failed operation.
+        // This prevents "there is already a transaction running" errors that would
+        // permanently block snapshot generation until the server is restarted.
+        let _ = self.snapshot_repository.rollback_transaction();
+
         // Begin transaction for the entire operation
         self.snapshot_repository.begin_transaction()?;
 
@@ -419,16 +424,25 @@ where
         match result {
             Ok(()) => {
                 // Commit on success
-                self.snapshot_repository.commit_transaction()?;
-                info!(
-                    "Generated {} snapshots for {} issues in project {}",
-                    total_snapshots, issues_processed, project_key
-                );
-                Ok(SnapshotGenerationResult::new(
-                    project_key.to_string(),
-                    issues_processed,
-                    total_snapshots,
-                ))
+                match self.snapshot_repository.commit_transaction() {
+                    Ok(()) => {
+                        info!(
+                            "Generated {} snapshots for {} issues in project {}",
+                            total_snapshots, issues_processed, project_key
+                        );
+                        Ok(SnapshotGenerationResult::new(
+                            project_key.to_string(),
+                            issues_processed,
+                            total_snapshots,
+                        ))
+                    }
+                    Err(e) => {
+                        // Rollback on commit failure to prevent dangling transaction
+                        warn!("Failed to commit snapshot transaction: {}", e);
+                        let _ = self.snapshot_repository.rollback_transaction();
+                        Err(e)
+                    }
+                }
             }
             Err(e) => {
                 // Rollback and return checkpoint for resume
@@ -589,6 +603,14 @@ where
 
         // Version 1: Initial state (from creation to first change)
         let first_change_time = timestamps[0];
+        // Extract array fields from raw_data before creating snapshot (raw_data itself is NOT stored
+        // for historical versions to avoid massive memory usage - only current version stores raw_data)
+        let v1_labels =
+            Self::extract_labels_from_raw_data(&snapshot_raw_data).or_else(|| issue.labels.clone());
+        let v1_components = Self::extract_components_from_raw_data(&snapshot_raw_data)
+            .or_else(|| issue.components.clone());
+        let v1_fix_versions = Self::extract_fix_versions_from_raw_data(&snapshot_raw_data)
+            .or_else(|| issue.fix_versions.clone());
         let snapshot = IssueSnapshot::new(
             issue.id.clone(),
             issue.key.clone(),
@@ -628,11 +650,9 @@ where
                 .get("resolution")
                 .cloned()
                 .or_else(|| issue.resolution.clone()),
-            Self::extract_labels_from_raw_data(&snapshot_raw_data).or_else(|| issue.labels.clone()),
-            Self::extract_components_from_raw_data(&snapshot_raw_data)
-                .or_else(|| issue.components.clone()),
-            Self::extract_fix_versions_from_raw_data(&snapshot_raw_data)
-                .or_else(|| issue.fix_versions.clone()),
+            v1_labels,
+            v1_components,
+            v1_fix_versions,
             current_state
                 .get("sprint")
                 .cloned()
@@ -641,12 +661,13 @@ where
                 .get("parent")
                 .cloned()
                 .or_else(|| issue.parent_key.clone()),
-            snapshot_raw_data.clone(),
-            issue.updated_date,
+            None, // raw_data only stored for current (latest) version
+            Some(issue_created), // Version 1: use creation time as updated_date
         );
         snapshots.push(snapshot);
 
         // Apply each change to create subsequent snapshots
+        let total_changes = timestamps.len();
         for (i, &change_time) in timestamps.iter().enumerate() {
             let Some(changes) = grouped_changes.get(&change_time) else {
                 // This should never happen, but skip gracefully if it does
@@ -671,11 +692,20 @@ where
             }
 
             // Determine valid_to (next change time or None if this is the last)
-            let valid_to = if i + 1 < timestamps.len() {
+            let is_last = i + 1 >= total_changes;
+            let valid_to = if !is_last {
                 Some(timestamps[i + 1])
             } else {
                 None
             };
+
+            // Extract array fields from the current raw_data state
+            let ver_labels = Self::extract_labels_from_raw_data(&snapshot_raw_data)
+                .or_else(|| issue.labels.clone());
+            let ver_components = Self::extract_components_from_raw_data(&snapshot_raw_data)
+                .or_else(|| issue.components.clone());
+            let ver_fix_versions = Self::extract_fix_versions_from_raw_data(&snapshot_raw_data)
+                .or_else(|| issue.fix_versions.clone());
 
             let version = (i + 2) as i32; // Version 1 was initial, so changes start at version 2
             let snapshot = IssueSnapshot::new(
@@ -717,12 +747,9 @@ where
                     .get("resolution")
                     .cloned()
                     .or_else(|| issue.resolution.clone()),
-                Self::extract_labels_from_raw_data(&snapshot_raw_data)
-                    .or_else(|| issue.labels.clone()),
-                Self::extract_components_from_raw_data(&snapshot_raw_data)
-                    .or_else(|| issue.components.clone()),
-                Self::extract_fix_versions_from_raw_data(&snapshot_raw_data)
-                    .or_else(|| issue.fix_versions.clone()),
+                ver_labels,
+                ver_components,
+                ver_fix_versions,
                 current_state
                     .get("sprint")
                     .cloned()
@@ -731,8 +758,20 @@ where
                     .get("parent")
                     .cloned()
                     .or_else(|| issue.parent_key.clone()),
-                snapshot_raw_data.clone(),
-                issue.updated_date,
+                // Only store raw_data for the current (latest) version to avoid memory explosion.
+                // Historical versions have basic fields stored directly.
+                if is_last {
+                    snapshot_raw_data.clone()
+                } else {
+                    None
+                },
+                // Last version (valid_to=None): use issue.updated_date
+                // Earlier versions: use change_time as updated_date
+                if valid_to.is_none() {
+                    issue.updated_date
+                } else {
+                    Some(change_time)
+                },
             );
             snapshots.push(snapshot);
         }
