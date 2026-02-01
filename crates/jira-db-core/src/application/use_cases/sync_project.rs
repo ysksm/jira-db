@@ -624,7 +624,7 @@ where
                 (result.snapshots_generated, false)
             }
             Err(e) => {
-                warn!("Failed to generate snapshots: {}", e);
+                log::error!("[{}] Failed to generate snapshots: {}", project_key, e);
                 step3.detail(&format!("Error: {} (can be resumed)", e));
                 // Keep last_snapshot_checkpoint for resume
                 (0, true)

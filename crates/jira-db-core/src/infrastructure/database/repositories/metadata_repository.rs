@@ -327,7 +327,7 @@ impl MetadataRepository for DuckDbMetadataRepository {
             DomainError::Repository(format!("Failed to acquire database lock: {}", e))
         })?;
         let mut stmt = conn
-            .prepare("SELECT name, description, released, release_date FROM fix_versions WHERE project_id = ? ORDER BY name")
+            .prepare("SELECT name, description, released, CAST(release_date AS VARCHAR) as release_date FROM fix_versions WHERE project_id = ? ORDER BY name")
             .map_err(|e| DomainError::Repository(format!("Failed to prepare query: {}", e)))?;
 
         let rows = stmt

@@ -126,7 +126,9 @@ impl IssueRepository for DuckDbIssueRepository {
                    status, priority, assignee, reporter,
                    issue_type, resolution, labels, components, fix_versions, sprint, team, parent_key,
                    CASE WHEN due_date IS NOT NULL THEN strftime(due_date::TIMESTAMP, '%Y-%m-%dT%H:%M:%S') || '+00:00' ELSE NULL END as due_date,
-                   created_date, updated_date, raw_data
+                   CASE WHEN created_date IS NOT NULL THEN strftime(created_date::TIMESTAMP, '%Y-%m-%dT%H:%M:%S') || '+00:00' ELSE NULL END as created_date,
+                   CASE WHEN updated_date IS NOT NULL THEN strftime(updated_date::TIMESTAMP, '%Y-%m-%dT%H:%M:%S') || '+00:00' ELSE NULL END as updated_date,
+                   raw_data
             FROM issues
             WHERE project_id = ?
             "#,
@@ -197,7 +199,7 @@ impl IssueRepository for DuckDbIssueRepository {
         })?;
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM issues WHERE project_id = ?",
+                "SELECT COUNT(*) FROM issues WHERE project_id = ? AND (is_deleted IS NULL OR is_deleted = false)",
                 duckdb::params![project_id],
                 |row| row.get(0),
             )
@@ -497,7 +499,9 @@ impl IssueRepository for DuckDbIssueRepository {
                    status, priority, assignee, reporter,
                    issue_type, resolution, labels, components, fix_versions, sprint, team, parent_key,
                    CASE WHEN due_date IS NOT NULL THEN strftime(due_date::TIMESTAMP, '%Y-%m-%dT%H:%M:%S') || '+00:00' ELSE NULL END as due_date,
-                   created_date, updated_date, raw_data
+                   CASE WHEN created_date IS NOT NULL THEN strftime(created_date::TIMESTAMP, '%Y-%m-%dT%H:%M:%S') || '+00:00' ELSE NULL END as created_date,
+                   CASE WHEN updated_date IS NOT NULL THEN strftime(updated_date::TIMESTAMP, '%Y-%m-%dT%H:%M:%S') || '+00:00' ELSE NULL END as updated_date,
+                   raw_data
             FROM issues
             WHERE project_id = ? AND (is_deleted IS NULL OR is_deleted = false)
             ORDER BY id
@@ -553,7 +557,9 @@ impl IssueRepository for DuckDbIssueRepository {
                    status, priority, assignee, reporter,
                    issue_type, resolution, labels, components, fix_versions, sprint, team, parent_key,
                    CASE WHEN due_date IS NOT NULL THEN strftime(due_date::TIMESTAMP, '%Y-%m-%dT%H:%M:%S') || '+00:00' ELSE NULL END as due_date,
-                   created_date, updated_date, raw_data
+                   CASE WHEN created_date IS NOT NULL THEN strftime(created_date::TIMESTAMP, '%Y-%m-%dT%H:%M:%S') || '+00:00' ELSE NULL END as created_date,
+                   CASE WHEN updated_date IS NOT NULL THEN strftime(updated_date::TIMESTAMP, '%Y-%m-%dT%H:%M:%S') || '+00:00' ELSE NULL END as updated_date,
+                   raw_data
             FROM issues
             WHERE project_id = ? AND id > ? AND (is_deleted IS NULL OR is_deleted = false)
             ORDER BY id
