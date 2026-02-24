@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use tokio::sync::mpsc::UnboundedSender;
+
 use jira_db_core::{
     DuckDbChangeHistoryRepository, DuckDbFieldRepository, DuckDbIssueRepository,
     DuckDbIssueSnapshotRepository, DuckDbIssuesExpandedRepository, DuckDbMetadataRepository,
@@ -22,10 +24,40 @@ struct ProjectSyncInfo {
     endpoint_name: Option<String>,
 }
 
-/// Execute sync for enabled projects
+/// Send a progress event on the channel (silently ignores if receiver dropped)
+fn send_progress(
+    tx: &Option<UnboundedSender<SyncProgress>>,
+    project_key: &str,
+    phase: &str,
+    current: i32,
+    total: i32,
+    message: &str,
+) {
+    if let Some(tx) = tx {
+        let progress = SyncProgress {
+            project_key: project_key.to_string(),
+            phase: phase.to_string(),
+            current,
+            total,
+            message: message.to_string(),
+        };
+        let _ = tx.send(progress);
+    }
+}
+
+/// Execute sync for enabled projects (delegates to execute_with_progress with no sender)
 pub async fn execute(
     state: &AppState,
     request: SyncExecuteRequest,
+) -> ServiceResult<SyncExecuteResponse> {
+    execute_with_progress(state, request, None).await
+}
+
+/// Execute sync for enabled projects with optional progress reporting
+pub async fn execute_with_progress(
+    state: &AppState,
+    request: SyncExecuteRequest,
+    progress_tx: Option<UnboundedSender<SyncProgress>>,
 ) -> ServiceResult<SyncExecuteResponse> {
     let settings = state.get_settings().ok_or(ServiceError::NotInitialized)?;
     let settings_path = state
@@ -185,6 +217,17 @@ pub async fn execute(
 
         // Step 1: Sync fields from JIRA (once per endpoint)
         if !fields_synced_for_endpoint.contains(endpoint_name) {
+            // Emit fields progress for each project in this endpoint group
+            for project in projects {
+                send_progress(
+                    &progress_tx,
+                    &project.key,
+                    "fields",
+                    0,
+                    5,
+                    "Fetching JIRA fields...",
+                );
+            }
             tracing::info!(
                 "Syncing fields from JIRA endpoint '{}'...",
                 endpoint_display
@@ -199,6 +242,16 @@ pub async fn execute(
             fields_synced_for_endpoint.insert(endpoint_name.clone());
 
             // Step 2: Add columns based on fields
+            for project in projects {
+                send_progress(
+                    &progress_tx,
+                    &project.key,
+                    "columns",
+                    1,
+                    5,
+                    "Adding database columns...",
+                );
+            }
             tracing::info!("Adding columns to issues_expanded table...");
             let _ = fields_use_case.add_columns();
         }
@@ -206,6 +259,16 @@ pub async fn execute(
         // Step 3: Execute resumable sync for each project with checkpoint support
         for project in projects {
             let start_time = std::time::Instant::now();
+
+            // Emit issues progress
+            send_progress(
+                &progress_tx,
+                &project.key,
+                "issues",
+                2,
+                5,
+                "Fetching issues from JIRA...",
+            );
 
             // Show resuming message if we have a checkpoint
             if let Some(cp) = &project.checkpoint {
@@ -240,6 +303,14 @@ pub async fn execute(
                 .await;
 
             // Step 4: Expand issues for this project
+            send_progress(
+                &progress_tx,
+                &project.key,
+                "expand",
+                3,
+                5,
+                "Expanding issues...",
+            );
             let _ = fields_use_case.expand_issues(Some(&project.id));
 
             let duration = start_time.elapsed().as_secs_f64();
@@ -269,9 +340,21 @@ pub async fn execute(
                         }
                     }
 
+                    let issue_count = sync_result.issues_synced as i32;
+
+                    // Emit complete progress
+                    send_progress(
+                        &progress_tx,
+                        &project.key,
+                        "complete",
+                        5,
+                        5,
+                        &format!("Completed: {} issues in {:.1}s", issue_count, duration),
+                    );
+
                     results.push(SyncResult {
                         project_key: sync_result.project_key,
-                        issue_count: sync_result.issues_synced as i32,
+                        issue_count,
                         metadata_updated: true,
                         duration,
                         success,
@@ -279,6 +362,16 @@ pub async fn execute(
                     });
                 }
                 Err(e) => {
+                    // Emit error as complete
+                    send_progress(
+                        &progress_tx,
+                        &project.key,
+                        "complete",
+                        5,
+                        5,
+                        &format!("Failed: {}", e),
+                    );
+
                     results.push(SyncResult {
                         project_key: project.key.clone(),
                         issue_count: 0,
@@ -292,6 +385,17 @@ pub async fn execute(
         }
 
         // Step 5: Create readable views (once per endpoint)
+        // Emit views progress for the last project in this group
+        if let Some(last_project) = projects.last() {
+            send_progress(
+                &progress_tx,
+                &last_project.key,
+                "views",
+                4,
+                5,
+                "Creating readable views...",
+            );
+        }
         let _ = fields_use_case.create_readable_view();
         let _ = fields_use_case.create_snapshots_readable_view();
     }

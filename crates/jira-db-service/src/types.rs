@@ -440,6 +440,8 @@ pub struct ProjectDisableResponse {
 pub struct SyncExecuteRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub force: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

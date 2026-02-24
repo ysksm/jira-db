@@ -1,8 +1,9 @@
 import { Component, OnInit, OnDestroy, signal, inject, PLATFORM_ID } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Project, SyncResult, SyncProgress } from '../../generated/models';
+import { Project, SyncResult, SyncProgress, SyncExecuteResponse } from '../../generated/models';
 import { API_SERVICE, IApiService } from '../../api.provider';
+import { environment } from '../../../environments/environment';
 
 // Tauri event types
 type UnlistenFn = () => void;
@@ -18,6 +19,7 @@ export class SyncComponent implements OnInit, OnDestroy {
   private api = inject<IApiService>(API_SERVICE);
   private platformId = inject(PLATFORM_ID);
   private unlisten: UnlistenFn | null = null;
+  private activeEventSource: EventSource | null = null;
 
   projects = signal<Project[]>([]);
   loading = signal(true);
@@ -44,28 +46,33 @@ export class SyncComponent implements OnInit, OnDestroy {
     if (this.unlisten) {
       this.unlisten();
     }
+    if (this.activeEventSource) {
+      this.activeEventSource.close();
+      this.activeEventSource = null;
+    }
   }
 
   private async setupProgressListener(): Promise<void> {
-    // Only setup listener in browser (Tauri) environment
+    // Only setup Tauri listener in Tauri mode
     if (!isPlatformBrowser(this.platformId)) {
       return;
     }
 
-    try {
-      // Dynamic import to avoid SSR issues
-      const { listen } = await import('@tauri-apps/api/event');
-      this.unlisten = await listen<SyncProgress>('sync-progress', (event) => {
-        const progress = event.payload;
-        this.currentProgress.set(progress);
-
-        // Add to history
-        this.progressHistory.update(history => [...history, progress]);
-      });
-    } catch (e) {
-      // Not running in Tauri, ignore
-      console.debug('Tauri event listener not available:', e);
+    if (environment.apiMode === 'tauri') {
+      try {
+        // Dynamic import to avoid SSR issues
+        const { listen } = await import('@tauri-apps/api/event');
+        this.unlisten = await listen<SyncProgress>('sync-progress', (event) => {
+          const progress = event.payload;
+          this.currentProgress.set(progress);
+          this.progressHistory.update(history => [...history, progress]);
+        });
+      } catch (e) {
+        // Not running in Tauri, ignore
+        console.debug('Tauri event listener not available:', e);
+      }
     }
+    // In web mode, SSE is handled per-sync in startSyncWithSSE()
   }
 
   loadProjects(): void {
@@ -96,22 +103,87 @@ export class SyncComponent implements OnInit, OnDestroy {
       ...(useForce ? { force: true } : {})
     };
 
-    this.api.syncExecute(request).subscribe({
-      next: (response) => {
-        this.syncResults.set(response.results);
-        this.syncing.set(false);
-        // Keep currentProgress and progressHistory visible after completion
-        // Reset force checkbox after sync
-        this.forceFullSync.set(false);
-        // Refresh projects to update last_synced
-        this.loadProjects();
-      },
-      error: (err) => {
-        this.error.set('Sync failed: ' + err);
-        this.syncing.set(false);
-        // Keep progress panel visible on error too
+    if (environment.apiMode === 'tauri') {
+      // Tauri mode: use existing API call + Tauri event system for progress
+      this.api.syncExecute(request).subscribe({
+        next: (response) => {
+          this.syncResults.set(response.results);
+          this.syncing.set(false);
+          this.forceFullSync.set(false);
+          this.loadProjects();
+        },
+        error: (err) => {
+          this.error.set('Sync failed: ' + err);
+          this.syncing.set(false);
+        }
+      });
+    } else {
+      // Web mode: use SSE for real-time progress
+      this.startSyncWithSSE(request);
+    }
+  }
+
+  private startSyncWithSSE(request: { projectKey?: string; force?: boolean }): void {
+    // Build query string for GET request
+    const params = new URLSearchParams();
+    if (request.projectKey) {
+      params.set('projectKey', request.projectKey);
+    }
+    if (request.force) {
+      params.set('force', 'true');
+    }
+
+    const url = `${environment.apiBaseUrl}/sync.execute-stream${params.toString() ? '?' + params.toString() : ''}`;
+    const eventSource = new EventSource(url);
+
+    eventSource.addEventListener('progress', (event: MessageEvent) => {
+      try {
+        const progress: SyncProgress = JSON.parse(event.data);
+        this.currentProgress.set(progress);
+        this.progressHistory.update(history => [...history, progress]);
+      } catch (e) {
+        console.error('Failed to parse progress event:', e);
       }
     });
+
+    eventSource.addEventListener('complete', (event: MessageEvent) => {
+      try {
+        const response: SyncExecuteResponse = JSON.parse(event.data);
+        this.syncResults.set(response.results);
+      } catch (e) {
+        console.error('Failed to parse complete event:', e);
+      }
+      this.syncing.set(false);
+      this.forceFullSync.set(false);
+      this.loadProjects();
+      eventSource.close();
+      this.activeEventSource = null;
+    });
+
+    eventSource.addEventListener('error', (event: Event) => {
+      const msgEvent = event as MessageEvent;
+      if (msgEvent.data) {
+        try {
+          const errorData = JSON.parse(msgEvent.data);
+          this.error.set('Sync failed: ' + (errorData.error || 'Unknown error'));
+        } catch {
+          this.error.set('Sync failed: Connection error');
+        }
+      } else {
+        // EventSource connection error
+        if (eventSource.readyState === EventSource.CLOSED) {
+          if (this.syncing()) {
+            this.error.set('Sync failed: Connection lost');
+          }
+        }
+      }
+      this.syncing.set(false);
+      eventSource.close();
+      this.activeEventSource = null;
+    });
+
+    // Store reference for cleanup
+    this.activeEventSource = eventSource;
   }
 
   dismissProgressPanel(): void {
