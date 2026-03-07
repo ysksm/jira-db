@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Workers Learning</title>
+    <style>
+      body { font-family: 'Segoe UI', sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #1a1a2e; color: #eee; }
+      h1 { color: #e94560; font-size: 28px; }
+      h2 { color: #4ecca3; margin-top: 32px; }
+      a { color: #4ecca3; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .section { background: #16213e; border-radius: 8px; padding: 20px; margin: 16px 0; }
+      .page-link { display: block; padding: 12px 16px; margin: 8px 0; background: #0f3460; border-radius: 6px; transition: background 0.2s; }
+      .page-link:hover { background: #1a4a7a; text-decoration: none; }
+      .page-link h3 { margin: 0; color: #eee; font-size: 16px; }
+      .page-link p { margin: 4px 0 0; color: #aaa; font-size: 13px; }
+      .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; margin-right: 6px; }
+      .tag-basic { background: #4ecca3; color: #1a1a2e; }
+      .tag-advanced { background: #e94560; color: white; }
+      .intro { background: #0a1931; padding: 16px; border-radius: 8px; line-height: 1.8; }
+    </style>
+  </head>
+  <body>
+    <h1>Web Workers Learning</h1>
+
+    <div class="intro">
+      Web Worker は JavaScript をメインスレッドとは別のバックグラウンドスレッドで実行する仕組みです。<br />
+      重い計算や高頻度処理をオフロードすることで、UIの応答性を維持できます。<br /><br />
+      <strong>基本編</strong>はバニラ JS で直接ファイルを開いて学べます。<br />
+      <strong>応用編</strong>は React + TypeScript で構築されており、<code>cd advanced/react-workers && npm run dev</code> で起動します。
+    </div>
+
+    <h2>基本編 (Vanilla JavaScript)</h2>
+    <div class="section">
+      <a href="basic/01-basic-worker/index.html" class="page-link">
+        <h3><span class="tag tag-basic">基本</span> 01: 基本的な Web Worker</h3>
+        <p>postMessage / onmessage によるメッセージング、UIブロッキングの回避</p>
+      </a>
+      <a href="basic/02-message-passing/index.html" class="page-link">
+        <h3><span class="tag tag-basic">基本</span> 02: メッセージパッシングパターン</h3>
+        <p>Request/Response、ストリーミング、構造化データの送受信</p>
+      </a>
+      <a href="basic/03-error-handling/index.html" class="page-link">
+        <h3><span class="tag tag-basic">基本</span> 03: エラーハンドリング</h3>
+        <p>onerror、try/catch、terminate()、Worker の再作成</p>
+      </a>
+      <a href="basic/04-transferable-objects/index.html" class="page-link">
+        <h3><span class="tag tag-basic">基本</span> 04: Transferable Objects</h3>
+        <p>ゼロコピー転送、ArrayBuffer、パフォーマンス比較、画像処理</p>
+      </a>
+      <a href="basic/05-shared-worker/index.html" class="page-link">
+        <h3><span class="tag tag-basic">基本</span> 05: SharedWorker</h3>
+        <p>複数タブでの Worker 共有、MessagePort、タブ間チャット</p>
+      </a>
+    </div>
+
+    <h2>応用編 (React + TypeScript)</h2>
+    <div class="section">
+      <p style="color: #f1c40f; margin-top: 0;">
+        起動方法: <code>cd advanced/react-workers && npm run dev</code>
+      </p>
+      <div class="page-link" style="cursor: default;">
+        <h3><span class="tag tag-advanced">応用</span> 06: React + Worker 基本統合</h3>
+        <p>Vite での Worker インポート、useRef / useEffect でのライフサイクル管理</p>
+      </div>
+      <div class="page-link" style="cursor: default;">
+        <h3><span class="tag tag-advanced">応用</span> 07: useWorker カスタムフック</h3>
+        <p>汎用 Worker フック、Promise ベースの通信、Promise.all で並列実行</p>
+      </div>
+      <div class="page-link" style="cursor: default;">
+        <h3><span class="tag tag-advanced">応用</span> 08: Worker + useReducer</h3>
+        <p>Reducer ロジックを Worker にオフロード、状態管理との統合</p>
+      </div>
+      <div class="page-link" style="cursor: default;">
+        <h3><span class="tag tag-advanced">応用</span> 09: 高頻度ポーリング Dashboard</h3>
+        <p>Worker による高頻度ポーリング、リアルタイムチャート、異常検知</p>
+      </div>
+    </div>
+  </body>
+</html>

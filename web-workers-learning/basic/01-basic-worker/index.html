@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>01: 基本的な Web Worker</title>
+    <style>
+      body { font-family: 'Segoe UI', sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #1a1a2e; color: #eee; }
+      h1 { color: #e94560; }
+      .card { background: #16213e; border-radius: 8px; padding: 20px; margin: 16px 0; }
+      button { background: #e94560; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; margin: 4px; }
+      button:hover { background: #c73a52; }
+      button:disabled { background: #555; cursor: not-allowed; }
+      #log { background: #0f3460; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; }
+      .log-entry { margin: 4px 0; padding: 4px 8px; border-left: 3px solid #e94560; }
+      .log-entry.worker { border-left-color: #4ecca3; }
+      .counter { font-size: 48px; text-align: center; color: #4ecca3; margin: 20px 0; }
+      .explanation { background: #0a1931; padding: 16px; border-radius: 8px; margin: 16px 0; line-height: 1.8; }
+      code { background: #16213e; padding: 2px 6px; border-radius: 3px; color: #4ecca3; }
+    </style>
+  </head>
+  <body>
+    <h1>01: 基本的な Web Worker</h1>
+
+    <div class="explanation">
+      <strong>学習ポイント:</strong><br />
+      ・Web Worker はメインスレッドとは<strong>別のスレッドで実行</strong>される<br />
+      ・<code>postMessage()</code> でメッセージを送信、<code>onmessage</code> で受信<br />
+      ・重い計算を Worker に委譲すると、UIがフリーズしない<br />
+      ・Worker は DOM にアクセスできない
+    </div>
+
+    <div class="card">
+      <h3>UIブロッキングのデモ</h3>
+      <p>下のカウンターが止まらずに動き続けることを確認してください</p>
+      <div class="counter" id="counter">0</div>
+
+      <button onclick="runInWorker(1e7)">Worker で 1000万回計算</button>
+      <button onclick="runInWorker(1e8)">Worker で 1億回計算</button>
+      <button onclick="runInMainThread(1e7)">メインスレッドで 1000万回計算 ⚠️</button>
+      <button onclick="sendPing()">Ping</button>
+    </div>
+
+    <div class="card">
+      <h3>ログ</h3>
+      <div id="log"></div>
+    </div>
+
+    <script>
+      // --- カウンター（メインスレッドが生きているかの指標）---
+      let count = 0;
+      const counterEl = document.getElementById("counter");
+      setInterval(() => {
+        counterEl.textContent = ++count;
+      }, 50);
+
+      // --- Web Worker の作成 ---
+      const worker = new Worker("worker.js");
+
+      // --- Worker からのメッセージを受信 ---
+      worker.onmessage = function (event) {
+        const { type, payload } = event.data;
+        log(`[Worker → Main] type=${type}`, JSON.stringify(payload), "worker");
+      };
+
+      // --- Worker のエラーを監視 ---
+      worker.onerror = function (error) {
+        log(`[Worker Error] ${error.message}`, "", "error");
+      };
+
+      // --- Worker に計算を依頼 ---
+      function runInWorker(iterations) {
+        log(`[Main → Worker] heavy-calc (${iterations.toLocaleString()} 回)`);
+        worker.postMessage({
+          type: "heavy-calc",
+          payload: { iterations },
+        });
+      }
+
+      // --- 比較：メインスレッドで同じ計算（UIがフリーズする）---
+      function runInMainThread(iterations) {
+        log(`[Main Thread] 計算開始... UIがフリーズします！`);
+        const start = performance.now();
+        let result = 0;
+        for (let i = 0; i < iterations; i++) {
+          result += Math.sqrt(i) * Math.sin(i);
+        }
+        const elapsed = (performance.now() - start).toFixed(2);
+        log(`[Main Thread] 完了: ${result.toFixed(4)} (${elapsed}ms)`);
+      }
+
+      // --- Ping/Pong ---
+      function sendPing() {
+        log(`[Main → Worker] ping`);
+        worker.postMessage({ type: "ping" });
+      }
+
+      // --- ログ表示 ---
+      function log(message, detail = "", className = "") {
+        const logEl = document.getElementById("log");
+        const entry = document.createElement("div");
+        entry.className = `log-entry ${className}`;
+        entry.textContent = detail ? `${message}\n  → ${detail}` : message;
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>04: Transferable Objects</title>
+    <style>
+      body { font-family: 'Segoe UI', sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #1a1a2e; color: #eee; }
+      h1 { color: #e94560; }
+      h3 { color: #4ecca3; }
+      .card { background: #16213e; border-radius: 8px; padding: 20px; margin: 16px 0; }
+      button { background: #e94560; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; margin: 4px; }
+      button:hover { background: #c73a52; }
+      #log { background: #0f3460; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; }
+      .log-entry { margin: 2px 0; padding: 4px 8px; border-left: 3px solid #666; }
+      .log-entry.fast { border-left-color: #4ecca3; color: #4ecca3; }
+      .log-entry.slow { border-left-color: #f1c40f; color: #f1c40f; }
+      .log-entry.error { border-left-color: #e94560; color: #ff6b81; }
+      .explanation { background: #0a1931; padding: 16px; border-radius: 8px; margin: 16px 0; line-height: 1.8; }
+      code { background: #16213e; padding: 2px 6px; border-radius: 3px; color: #4ecca3; }
+      pre { background: #0a1931; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+      table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+      th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #0f3460; }
+      th { color: #4ecca3; }
+      canvas { border: 1px solid #4ecca3; border-radius: 4px; margin: 10px 0; }
+    </style>
+  </head>
+  <body>
+    <h1>04: Transferable Objects</h1>
+
+    <div class="explanation">
+      <strong>学習ポイント:</strong><br />
+      ・通常の <code>postMessage</code> はデータを<strong>構造化クローン</strong>でコピーする<br />
+      ・<code>Transferable Objects</code> は所有権を移転し、<strong>ゼロコピー</strong>で高速<br />
+      ・transfer 後、元のスレッドからはバッファにアクセスできなくなる<br />
+      ・対象: <code>ArrayBuffer</code>, <code>MessagePort</code>, <code>OffscreenCanvas</code> など
+
+      <pre>// 構造化クローン（コピー）
+worker.postMessage({ buffer: arrayBuffer });
+
+// Transfer（ゼロコピー、所有権移転）
+worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);</pre>
+    </div>
+
+    <div class="card">
+      <h3>ArrayBuffer の Transfer デモ</h3>
+      <p>Float64Array を Worker に送り、各要素を2倍にして返す</p>
+      <button onclick="processArrayBuffer()">ArrayBuffer を Transfer して処理</button>
+      <button onclick="showTransferEffect()">Transfer 後のアクセスを試す</button>
+    </div>
+
+    <div class="card">
+      <h3>パフォーマンス比較: Clone vs Transfer</h3>
+      <p>大きな ArrayBuffer の送受信速度を比較</p>
+      <table>
+        <tr><th>サイズ</th><th>Clone</th><th>Transfer</th><th>差</th></tr>
+        <tbody id="benchmarkResults"></tbody>
+      </table>
+      <button onclick="runBenchmark()">ベンチマーク実行</button>
+    </div>
+
+    <div class="card">
+      <h3>画像処理デモ (Transfer)</h3>
+      <p>Canvas の画像データを Worker に transfer してグレースケール変換</p>
+      <canvas id="canvas" width="200" height="200"></canvas>
+      <br />
+      <button onclick="drawColorImage()">カラー画像を描画</button>
+      <button onclick="processImage()">グレースケールに変換 (Transfer)</button>
+    </div>
+
+    <div class="card">
+      <h3>ログ</h3>
+      <div id="log"></div>
+    </div>
+
+    <script>
+      const worker = new Worker("worker.js");
+
+      worker.onmessage = function (event) {
+        const { type, payload } = event.data;
+
+        switch (type) {
+          case "processed": {
+            const view = new Float64Array(payload.buffer);
+            log(`[Result] 処理済みデータ (${payload.length} 要素): [${Array.from(view.slice(0, 5)).map(v => v.toFixed(1)).join(", ")}...]`, "fast");
+            break;
+          }
+          case "benchmark-result": {
+            handleBenchmarkResult(payload);
+            break;
+          }
+          case "image-processed": {
+            const ctx = document.getElementById("canvas").getContext("2d");
+            const imgData = ctx.createImageData(200, 200);
+            imgData.data.set(new Uint8ClampedArray(payload.buffer));
+            ctx.putImageData(imgData, 0, 0);
+            log("[Image] グレースケール変換完了 (Transfer)", "fast");
+            break;
+          }
+        }
+      };
+
+      // --- ArrayBuffer Transfer ---
+      function processArrayBuffer() {
+        const data = new Float64Array([1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8]);
+        log(`[Send] Float64Array: [${Array.from(data).join(", ")}]`);
+        log(`[Send] buffer.byteLength: ${data.buffer.byteLength}`);
+
+        // Transfer: 第2引数にバッファを指定
+        worker.postMessage(
+          { type: "process-arraybuffer", payload: { buffer: data.buffer } },
+          [data.buffer]
+        );
+
+        // Transfer 後、元のバッファは空になる
+        log(`[After Transfer] buffer.byteLength: ${data.buffer.byteLength} (所有権が移転)`, "fast");
+      }
+
+      // --- Transfer 後のアクセスエラー ---
+      function showTransferEffect() {
+        const buffer = new ArrayBuffer(1024);
+        const view = new Uint8Array(buffer);
+        view[0] = 42;
+        log(`[Before Transfer] buffer.byteLength = ${buffer.byteLength}, view[0] = ${view[0]}`);
+
+        // Transfer する
+        worker.postMessage(
+          { type: "benchmark", payload: { buffer, method: "transfer" } },
+          [buffer]
+        );
+
+        // Transfer 後
+        log(`[After Transfer] buffer.byteLength = ${buffer.byteLength} (0 になる!)`, "error");
+        try {
+          const val = view[0];
+          log(`[After Transfer] view[0] = ${val} (undefined になる)`, "error");
+        } catch (e) {
+          log(`[After Transfer] Error: ${e.message}`, "error");
+        }
+      }
+
+      // --- ベンチマーク ---
+      const benchmarkData = {};
+      const sizes = [1, 10, 50];
+
+      function runBenchmark() {
+        document.getElementById("benchmarkResults").innerHTML = "";
+        const sizesMB = [...sizes];
+        let idx = 0;
+
+        function next() {
+          if (idx >= sizesMB.length) return;
+          const sizeMB = sizesMB[idx++];
+          const byteSize = sizeMB * 1024 * 1024;
+
+          // Clone
+          const buf1 = new ArrayBuffer(byteSize);
+          benchmarkData.cloneStart = performance.now();
+          benchmarkData.currentSize = sizeMB;
+          worker.postMessage({ type: "benchmark", payload: { buffer: buf1, method: "clone" } });
+
+          // Transfer (少し遅延させて順番に)
+          setTimeout(() => {
+            const buf2 = new ArrayBuffer(byteSize);
+            benchmarkData.transferStart = performance.now();
+            worker.postMessage(
+              { type: "benchmark", payload: { buffer: buf2, method: "transfer" } },
+              [buf2]
+            );
+            setTimeout(next, 100);
+          }, 100);
+        }
+
+        next();
+      }
+
+      function handleBenchmarkResult(payload) {
+        const now = performance.now();
+        if (payload.method === "clone") {
+          benchmarkData.cloneTime = (now - benchmarkData.cloneStart).toFixed(2);
+          log(`[Benchmark] ${benchmarkData.currentSize}MB Clone: ${benchmarkData.cloneTime}ms`, "slow");
+        } else {
+          benchmarkData.transferTime = (now - benchmarkData.transferStart).toFixed(2);
+          log(`[Benchmark] ${benchmarkData.currentSize}MB Transfer: ${benchmarkData.transferTime}ms`, "fast");
+
+          // 表に追加
+          const tbody = document.getElementById("benchmarkResults");
+          const row = document.createElement("tr");
+          const diff = (benchmarkData.cloneTime - benchmarkData.transferTime).toFixed(2);
+          row.innerHTML = `
+            <td>${benchmarkData.currentSize} MB</td>
+            <td>${benchmarkData.cloneTime} ms</td>
+            <td>${benchmarkData.transferTime} ms</td>
+            <td style="color: #4ecca3">${diff} ms faster</td>
+          `;
+          tbody.appendChild(row);
+        }
+      }
+
+      // --- 画像処理 ---
+      function drawColorImage() {
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        // カラフルなグラデーション
+        for (let y = 0; y < 200; y++) {
+          for (let x = 0; x < 200; x++) {
+            ctx.fillStyle = `rgb(${x % 256}, ${(y * 2) % 256}, ${(x + y) % 256})`;
+            ctx.fillRect(x, y, 1, 1);
+          }
+        }
+        log("[Image] カラー画像を描画しました");
+      }
+
+      function processImage() {
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const imageData = ctx.getImageData(0, 0, 200, 200);
+        const buffer = imageData.data.buffer.slice(0); // コピーを作成
+
+        log(`[Image] 画像データを Worker に Transfer (${buffer.byteLength} bytes)`);
+        worker.postMessage(
+          { type: "process-image", payload: { buffer } },
+          [buffer]
+        );
+      }
+
+      function log(message, className = "") {
+        const logEl = document.getElementById("log");
+        const entry = document.createElement("div");
+        entry.className = `log-entry ${className}`;
+        entry.textContent = message;
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      // 初期描画
+      drawColorImage();
+    </script>
+  </body>
+</html>
