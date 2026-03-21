@@ -240,7 +240,9 @@ pub async fn execute(
                 .await;
 
             // Step 4: Expand issues for this project
-            let _ = fields_use_case.expand_issues(Some(&project.id));
+            if let Err(e) = fields_use_case.expand_issues(Some(&project.id)) {
+                tracing::warn!("[{}] Failed to expand issues: {}", project.key, e);
+            }
 
             let duration = start_time.elapsed().as_secs_f64();
 
@@ -292,8 +294,12 @@ pub async fn execute(
         }
 
         // Step 5: Create readable views (once per endpoint)
-        let _ = fields_use_case.create_readable_view();
-        let _ = fields_use_case.create_snapshots_readable_view();
+        if let Err(e) = fields_use_case.create_readable_view() {
+            tracing::error!("Failed to create readable view: {}", e);
+        }
+        if let Err(e) = fields_use_case.create_snapshots_readable_view() {
+            tracing::error!("Failed to create snapshots readable view: {}", e);
+        }
     }
 
     // Update last_synced for successful projects
