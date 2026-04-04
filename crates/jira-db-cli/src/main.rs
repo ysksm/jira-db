@@ -577,6 +577,15 @@ async fn handle_sync(
                 result.sync_result.issues_synced, result.sync_result.history_items_synced, key
             );
 
+            // Expand issues and create readable views
+            expand_and_create_views(
+                &db_factory,
+                &jira_service,
+                &key,
+                &project_id,
+            )
+            .await;
+
             // Clear all checkpoints on success and update last_synced
             let mut settings = Settings::load(&settings_path)?;
             if let Some(p) = settings.find_project_mut(&key) {
@@ -745,6 +754,16 @@ async fn handle_sync(
                             "Synced {} issues for project {}",
                             result.sync_result.issues_synced, key
                         );
+
+                        // Expand issues and create readable views
+                        expand_and_create_views(
+                            &db_factory,
+                            &jira_service,
+                            &key,
+                            &id,
+                        )
+                        .await;
+
                         let mut settings = Settings::load(&settings_path)?;
                         if let Some(p) = settings.find_project_mut(&key) {
                             // Use the last issue's updated_at for reliable incremental sync
@@ -784,6 +803,57 @@ async fn handle_sync(
     }
 
     Ok(())
+}
+
+/// Expand issues and create readable views after successful sync
+async fn expand_and_create_views(
+    db_factory: &Arc<DatabaseFactory>,
+    jira_service: &Arc<JiraApiClient>,
+    project_key: &str,
+    project_id: &str,
+) {
+    use jira_db_core::application::use_cases::SyncFieldsUseCase;
+    use jira_db_core::infrastructure::database::{
+        DuckDbFieldRepository, DuckDbIssuesExpandedRepository,
+    };
+
+    let conn = match db_factory.get_connection(project_key) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Failed to get connection for expand/views: {}", e);
+            return;
+        }
+    };
+
+    let field_repo = Arc::new(DuckDbFieldRepository::new(conn.clone()));
+    let expanded_repo = Arc::new(DuckDbIssuesExpandedRepository::new(conn));
+    let fields_use_case =
+        SyncFieldsUseCase::new(jira_service.clone(), field_repo, expanded_repo);
+
+    // Sync fields from JIRA
+    if let Err(e) = fields_use_case.sync_fields().await {
+        warn!("Failed to sync fields: {}", e);
+    }
+
+    // Add columns based on fields
+    if let Err(e) = fields_use_case.add_columns() {
+        warn!("Failed to add columns: {}", e);
+    }
+
+    // Expand issues from raw_data
+    match fields_use_case.expand_issues(Some(project_id)) {
+        Ok(count) => info!("Expanded {} issues into issues_expanded", count),
+        Err(e) => warn!("Failed to expand issues: {}", e),
+    }
+
+    // Create readable views
+    if let Err(e) = fields_use_case.create_readable_view() {
+        warn!("Failed to create readable view: {}", e);
+    }
+
+    if let Err(e) = fields_use_case.create_snapshots_readable_view() {
+        warn!("Failed to create snapshots readable view: {}", e);
+    }
 }
 
 fn handle_search(
