@@ -2,11 +2,13 @@
 //!
 //! Each handler wraps the corresponding service function.
 
+use std::convert::Infallible;
 use std::sync::Arc;
 
 use actix_web::{HttpResponse, web};
+use serde::Deserialize;
 
-use jira_db_service::{self as service, AppState};
+use jira_db_service::{self as service, AppState, SyncProgress};
 
 use crate::error::ApiError;
 
@@ -94,6 +96,74 @@ pub async fn sync_status(
 ) -> Result<HttpResponse> {
     let response = service::sync::status(&state, request.into_inner())?;
     Ok(HttpResponse::Ok().json(response))
+}
+
+/// SSE query parameters for sync streaming
+#[derive(Debug, Deserialize)]
+pub struct SyncStreamQuery {
+    #[serde(rename = "projectKey")]
+    pub project_key: Option<String>,
+    pub force: Option<bool>,
+}
+
+/// SSE streaming endpoint for sync progress
+pub async fn sync_execute_stream(
+    state: web::Data<Arc<AppState>>,
+    query: web::Query<SyncStreamQuery>,
+) -> HttpResponse {
+    let request = service::SyncExecuteRequest {
+        project_key: query.project_key.clone(),
+        force: query.force,
+    };
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SyncProgress>();
+
+    let state_clone = state.get_ref().clone();
+
+    // Spawn the sync task in the background
+    let sync_handle = tokio::spawn(async move {
+        service::sync::execute_with_progress(&state_clone, request, Some(tx)).await
+    });
+
+    // Create SSE stream
+    let event_stream = async_stream::stream! {
+        // Yield progress events as they arrive
+        while let Some(progress) = rx.recv().await {
+            let data = serde_json::to_string(&progress).unwrap_or_default();
+            yield Ok::<_, Infallible>(
+                web::Bytes::from(format!("event: progress\ndata: {}\n\n", data))
+            );
+        }
+
+        // After all progress events, yield the final result
+        match sync_handle.await {
+            Ok(Ok(response)) => {
+                let data = serde_json::to_string(&response).unwrap_or_default();
+                yield Ok::<_, Infallible>(
+                    web::Bytes::from(format!("event: complete\ndata: {}\n\n", data))
+                );
+            }
+            Ok(Err(e)) => {
+                let error_json = serde_json::json!({ "error": e.to_string() });
+                yield Ok::<_, Infallible>(
+                    web::Bytes::from(format!("event: error\ndata: {}\n\n", error_json))
+                );
+            }
+            Err(e) => {
+                let error_json = serde_json::json!({ "error": e.to_string() });
+                yield Ok::<_, Infallible>(
+                    web::Bytes::from(format!("event: error\ndata: {}\n\n", error_json))
+                );
+            }
+        }
+    };
+
+    HttpResponse::Ok()
+        .content_type("text/event-stream")
+        .insert_header(("Cache-Control", "no-cache"))
+        .insert_header(("Connection", "keep-alive"))
+        .insert_header(("X-Accel-Buffering", "no"))
+        .streaming(event_stream)
 }
 
 // ============================================================

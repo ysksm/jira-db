@@ -131,6 +131,10 @@ async fn main() -> std::io::Result<()> {
                     )
                     // Sync
                     .route("/sync.execute", web::post().to(handlers::sync_execute))
+                    .route(
+                        "/sync.execute-stream",
+                        web::get().to(handlers::sync_execute_stream),
+                    )
                     .route("/sync.status", web::post().to(handlers::sync_status))
                     // Issues
                     .route("/issues.search", web::post().to(handlers::issues_search))

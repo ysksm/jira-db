@@ -41,3 +41,7 @@ clap.workspace = true
 
 # Configuration
 toml.workspace = true
+
+# SSE streaming
+async-stream = "0.3"
+futures-util = "0.3"
