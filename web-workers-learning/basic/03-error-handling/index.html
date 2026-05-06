@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>03: エラーハンドリング</title>
+    <style>
+      body { font-family: 'Segoe UI', sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #1a1a2e; color: #eee; }
+      h1 { color: #e94560; }
+      h3 { color: #4ecca3; }
+      .card { background: #16213e; border-radius: 8px; padding: 20px; margin: 16px 0; }
+      button { background: #e94560; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; margin: 4px; }
+      button:hover { background: #c73a52; }
+      button.safe { background: #4ecca3; color: #1a1a2e; }
+      button.safe:hover { background: #3bb08f; }
+      #log { background: #0f3460; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; }
+      .log-entry { margin: 2px 0; padding: 4px 8px; border-left: 3px solid #666; }
+      .log-entry.error { border-left-color: #e94560; color: #ff6b81; }
+      .log-entry.success { border-left-color: #4ecca3; color: #4ecca3; }
+      .log-entry.warn { border-left-color: #f1c40f; color: #f1c40f; }
+      .explanation { background: #0a1931; padding: 16px; border-radius: 8px; margin: 16px 0; line-height: 1.8; }
+      code { background: #16213e; padding: 2px 6px; border-radius: 3px; color: #4ecca3; }
+      pre { background: #0a1931; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>03: エラーハンドリング</h1>
+
+    <div class="explanation">
+      <strong>学習ポイント:</strong><br />
+      ・<code>worker.onerror</code> で Worker 内のキャッチされないエラーを検知<br />
+      ・Worker 内で <code>try/catch</code> してエラー情報を <code>postMessage</code> で返す（推奨）<br />
+      ・<code>ErrorEvent</code> オブジェクトには <code>message</code>, <code>filename</code>, <code>lineno</code> がある<br />
+      ・Worker を <code>terminate()</code> で強制終了できる
+    </div>
+
+    <div class="card">
+      <h3>エラーを発生させる</h3>
+      <p>各ボタンで異なるタイプのエラーを Worker 内で発生させます</p>
+      <button onclick="send('throw-error')">throw Error</button>
+      <button onclick="send('reference-error')">ReferenceError</button>
+      <button onclick="send('type-error')">TypeError</button>
+      <button onclick="send('async-error')">ネットワークエラー</button>
+      <button class="safe" onclick="send('graceful-error')">Graceful エラー（推奨）</button>
+      <button class="safe" onclick="send('normal')">正常処理</button>
+    </div>
+
+    <div class="card">
+      <h3>Worker の制御</h3>
+      <button onclick="terminateWorker()">Worker を terminate()</button>
+      <button class="safe" onclick="recreateWorker()">Worker を再作成</button>
+      <pre>// terminate() すると Worker は即座に停止し、再利用できない
+// 新しい Worker を作り直す必要がある
+worker.terminate();
+worker = new Worker("worker.js");</pre>
+    </div>
+
+    <div class="card">
+      <h3>ログ</h3>
+      <button onclick="clearLog()">ログをクリア</button>
+      <div id="log"></div>
+    </div>
+
+    <script>
+      let worker;
+
+      function createWorker() {
+        worker = new Worker("worker.js");
+
+        // Worker からの通常メッセージ
+        worker.onmessage = function (event) {
+          const { type, payload } = event.data;
+          if (type === "error") {
+            log(`[Graceful Error] ${payload.name}: ${payload.message}\n  handled=${payload.handled}`, "warn");
+          } else {
+            log(`[Worker → Main] ${type}: ${JSON.stringify(payload)}`, "success");
+          }
+        };
+
+        // Worker 内の未捕捉エラー
+        worker.onerror = function (event) {
+          // ErrorEvent オブジェクトの中身を確認
+          log(
+            `[onerror] キャッチされないエラー!\n` +
+              `  message: ${event.message}\n` +
+              `  filename: ${event.filename}\n` +
+              `  lineno: ${event.lineno}\n` +
+              `  colno: ${event.colno}`,
+            "error"
+          );
+          // デフォルトのエラー処理を抑制
+          event.preventDefault();
+        };
+
+        // メッセージのデシリアライズエラー
+        worker.onmessageerror = function (event) {
+          log(`[messageerror] メッセージのデシリアライズに失敗`, "error");
+        };
+
+        log("[Main] Worker を作成しました", "success");
+      }
+
+      function send(type) {
+        if (!worker) {
+          log("[Main] Worker が存在しません。再作成してください。", "error");
+          return;
+        }
+        log(`[Main → Worker] type="${type}"`);
+        try {
+          worker.postMessage({ type });
+        } catch (err) {
+          log(`[Main] postMessage 失敗: ${err.message}`, "error");
+        }
+      }
+
+      function terminateWorker() {
+        if (worker) {
+          worker.terminate();
+          worker = null;
+          log("[Main] Worker を terminate() しました。以後メッセージは送れません。", "warn");
+        }
+      }
+
+      function recreateWorker() {
+        if (worker) worker.terminate();
+        createWorker();
+      }
+
+      function log(message, className = "") {
+        const logEl = document.getElementById("log");
+        const entry = document.createElement("div");
+        entry.className = `log-entry ${className}`;
+        entry.textContent = message;
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function clearLog() {
+        document.getElementById("log").innerHTML = "";
+      }
+
+      // 初期化
+      createWorker();
+    </script>
+  </body>
+</html>

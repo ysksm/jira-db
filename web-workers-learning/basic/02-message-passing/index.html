@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>02: メッセージパッシングパターン</title>
+    <style>
+      body { font-family: 'Segoe UI', sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #1a1a2e; color: #eee; }
+      h1 { color: #e94560; }
+      h3 { color: #4ecca3; }
+      .card { background: #16213e; border-radius: 8px; padding: 20px; margin: 16px 0; }
+      button { background: #e94560; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; margin: 4px; }
+      button:hover { background: #c73a52; }
+      .progress-bar { background: #0f3460; border-radius: 4px; overflow: hidden; height: 24px; margin: 10px 0; }
+      .progress-fill { background: #4ecca3; height: 100%; width: 0%; transition: width 0.1s; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; }
+      #log { background: #0f3460; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
+      .log-entry { margin: 2px 0; padding: 4px 8px; border-left: 3px solid #e94560; }
+      .log-entry.response { border-left-color: #4ecca3; }
+      .explanation { background: #0a1931; padding: 16px; border-radius: 8px; margin: 16px 0; line-height: 1.8; }
+      code { background: #16213e; padding: 2px 6px; border-radius: 3px; color: #4ecca3; }
+      pre { background: #0a1931; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>02: メッセージパッシングパターン</h1>
+
+    <div class="explanation">
+      <strong>学習ポイント:</strong><br />
+      ・<code>id</code> を使って Request/Response を紐付ける<br />
+      ・ストリーミング: Worker から複数回 <code>postMessage</code> して進捗を送信<br />
+      ・構造化データ（オブジェクト・配列）はシリアライズされてコピーされる<br />
+      ・<strong>structured clone algorithm</strong> により、ほとんどの JS オブジェクトを送れる
+    </div>
+
+    <div class="card">
+      <h3>パターン1: Request/Response（IDで紐付け）</h3>
+      <p>リクエストごとにユニークなIDを付与し、レスポンスと対応づける</p>
+      <pre>// Main → Worker: { id: "req-1", type: "request-response", payload: {...} }
+// Worker → Main: { id: "req-1", type: "response", payload: {...} }</pre>
+      <button onclick="sendRequestResponse()">配列の合計を計算</button>
+    </div>
+
+    <div class="card">
+      <h3>パターン2: ストリーミング（進捗レポート）</h3>
+      <p>Worker から複数回に分けてメッセージを送信。進捗バーで表示</p>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill">0%</div>
+      </div>
+      <button onclick="sendStreaming(10)">10ステップ実行</button>
+      <button onclick="sendStreaming(30)">30ステップ実行</button>
+    </div>
+
+    <div class="card">
+      <h3>パターン3: 構造化データ</h3>
+      <p>オブジェクトの配列を Worker に送り、加工して返す</p>
+      <button onclick="sendStructuredData()">ユーザーデータを加工</button>
+    </div>
+
+    <div class="card">
+      <h3>ログ</h3>
+      <div id="log"></div>
+    </div>
+
+    <script>
+      const worker = new Worker("worker.js");
+      let requestId = 0;
+
+      // Promise ベースの Request/Response ヘルパー
+      const pendingRequests = new Map();
+
+      worker.onmessage = function (event) {
+        const { id, type, payload } = event.data;
+
+        // ストリーミング進捗の処理
+        if (type === "progress") {
+          const fill = document.getElementById("progressFill");
+          const pct = (payload.current / payload.total) * 100;
+          fill.style.width = pct + "%";
+          fill.textContent = payload.percent;
+          log(`[進捗] ${payload.current}/${payload.total} (${payload.percent})`, "response");
+          return;
+        }
+
+        log(`[Worker → Main] id=${id} type=${type}\n  ${JSON.stringify(payload)}`, "response");
+
+        // Promise を resolve
+        if (pendingRequests.has(id)) {
+          pendingRequests.get(id)(event.data);
+          pendingRequests.delete(id);
+        }
+      };
+
+      // Promise で Worker にリクエストを送る関数
+      function sendToWorker(type, payload) {
+        const id = `req-${++requestId}`;
+        log(`[Main → Worker] id=${id} type=${type}`);
+
+        return new Promise((resolve) => {
+          pendingRequests.set(id, resolve);
+          worker.postMessage({ id, type, payload });
+        });
+      }
+
+      // パターン1
+      async function sendRequestResponse() {
+        const numbers = Array.from({ length: 10 }, () => Math.floor(Math.random() * 100));
+        log(`送信する配列: [${numbers.join(", ")}]`);
+        const result = await sendToWorker("request-response", { numbers });
+        log(`✅ Promise resolved: 合計 = ${result.payload.sum}`, "response");
+      }
+
+      // パターン2
+      function sendStreaming(steps) {
+        const fill = document.getElementById("progressFill");
+        fill.style.width = "0%";
+        fill.textContent = "0%";
+        const id = `req-${++requestId}`;
+        log(`[Main → Worker] ストリーミング開始 (${steps} steps)`);
+        worker.postMessage({ id, type: "streaming", payload: { steps } });
+      }
+
+      // パターン3
+      async function sendStructuredData() {
+        const users = [
+          { id: 1, name: "Taro", age: 25 },
+          { id: 2, name: "Hanako", age: 30 },
+          { id: 3, name: "Jiro", age: 22 },
+        ];
+        const result = await sendToWorker("structured-data", { users });
+        log(`✅ 加工済みデータ:\n${JSON.stringify(result.payload.users, null, 2)}`, "response");
+      }
+
+      function log(message, className = "") {
+        const logEl = document.getElementById("log");
+        const entry = document.createElement("div");
+        entry.className = `log-entry ${className}`;
+        entry.textContent = message;
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+    </script>
+  </body>
+</html>

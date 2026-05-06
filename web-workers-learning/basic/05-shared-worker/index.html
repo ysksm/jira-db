@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>05: SharedWorker</title>
+    <style>
+      body { font-family: 'Segoe UI', sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #1a1a2e; color: #eee; }
+      h1 { color: #e94560; }
+      h3 { color: #4ecca3; }
+      .card { background: #16213e; border-radius: 8px; padding: 20px; margin: 16px 0; }
+      button { background: #e94560; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; margin: 4px; }
+      button:hover { background: #c73a52; }
+      input { background: #0f3460; border: 1px solid #4ecca3; color: #eee; padding: 10px; border-radius: 4px; font-size: 14px; width: 200px; margin: 4px; }
+      #chat { background: #0f3460; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; }
+      .chat-msg { margin: 4px 0; padding: 4px 8px; border-left: 3px solid #4ecca3; }
+      .chat-msg.system { border-left-color: #f1c40f; color: #f1c40f; }
+      .explanation { background: #0a1931; padding: 16px; border-radius: 8px; margin: 16px 0; line-height: 1.8; }
+      code { background: #16213e; padding: 2px 6px; border-radius: 3px; color: #4ecca3; }
+      pre { background: #0a1931; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+      .status { background: #0a1931; padding: 10px; border-radius: 4px; margin: 10px 0; }
+      .badge { display: inline-block; background: #4ecca3; color: #1a1a2e; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <h1>05: SharedWorker</h1>
+
+    <div class="explanation">
+      <strong>学習ポイント:</strong><br />
+      ・<code>SharedWorker</code> は複数のタブ/ウィンドウで<strong>1つの Worker を共有</strong>する<br />
+      ・通信は <code>MessagePort</code> 経由（<code>worker.port</code>）<br />
+      ・<code>onconnect</code> で新しい接続を処理（Dedicated Worker にはない）<br />
+      ・このページを<strong>複数のタブで開いて</strong>チャットしてみてください！
+
+      <pre>// Dedicated Worker との違い
+const dedicated = new Worker("worker.js");
+dedicated.postMessage(data);      // 直接通信
+
+const shared = new SharedWorker("shared-worker.js");
+shared.port.postMessage(data);    // port 経由で通信
+shared.port.start();              // 明示的に開始が必要</pre>
+    </div>
+
+    <div class="card">
+      <h3>接続状態</h3>
+      <div class="status">
+        Client ID: <span class="badge" id="clientId">-</span>
+        接続数: <span class="badge" id="connectionCount">-</span>
+        ユーザー数: <span class="badge" id="userCount">-</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>ユーザー登録</h3>
+      <input type="text" id="username" placeholder="名前を入力" />
+      <button onclick="register()">登録</button>
+    </div>
+
+    <div class="card">
+      <h3>チャット（タブ間で共有）</h3>
+      <div id="chat"></div>
+      <div style="margin-top: 10px;">
+        <input type="text" id="messageInput" placeholder="メッセージを入力" onkeydown="if(event.key==='Enter')sendChat()" />
+        <button onclick="sendChat()">送信</button>
+        <button onclick="getState()">状態を取得</button>
+      </div>
+    </div>
+
+    <script>
+      let myName = "";
+
+      // SharedWorker の作成
+      // 同じ URL の SharedWorker は全タブで共有される
+      const worker = new SharedWorker("shared-worker.js");
+
+      // port でメッセージを受信
+      worker.port.onmessage = function (event) {
+        const { type, payload } = event.data;
+
+        switch (type) {
+          case "connected":
+            document.getElementById("clientId").textContent = payload.clientId;
+            document.getElementById("connectionCount").textContent = payload.totalConnections;
+            addChat(`[System] 接続しました (Client #${payload.clientId})`, true);
+            break;
+
+          case "user-joined":
+            document.getElementById("userCount").textContent = payload.totalUsers;
+            document.getElementById("connectionCount").textContent = payload.totalConnections;
+            addChat(`[System] ${payload.name} が参加しました (${payload.totalUsers} 人)`, true);
+            break;
+
+          case "chat-message":
+            addChat(`[${payload.time}] ${payload.from}: ${payload.text}`);
+            break;
+
+          case "state":
+            addChat(`[State] ユーザー: ${payload.users.join(", ")} | 接続数: ${payload.connections} | メッセージ数: ${payload.messages.length}`, true);
+            break;
+        }
+      };
+
+      // port.start() を明示的に呼ぶ（onmessage を使う場合は自動だが、明示推奨）
+      worker.port.start();
+
+      function register() {
+        myName = document.getElementById("username").value.trim();
+        if (!myName) return;
+        worker.port.postMessage({ type: "register", payload: { name: myName } });
+      }
+
+      function sendChat() {
+        const input = document.getElementById("messageInput");
+        const text = input.value.trim();
+        if (!text || !myName) {
+          if (!myName) addChat("[System] 先に名前を登録してください", true);
+          return;
+        }
+        worker.port.postMessage({ type: "chat", payload: { from: myName, text } });
+        input.value = "";
+      }
+
+      function getState() {
+        worker.port.postMessage({ type: "get-state" });
+      }
+
+      function addChat(message, isSystem = false) {
+        const chatEl = document.getElementById("chat");
+        const msg = document.createElement("div");
+        msg.className = `chat-msg ${isSystem ? "system" : ""}`;
+        msg.textContent = message;
+        chatEl.appendChild(msg);
+        chatEl.scrollTop = chatEl.scrollHeight;
+      }
+    </script>
+  </body>
+</html>
